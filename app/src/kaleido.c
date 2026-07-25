@@ -280,6 +280,12 @@ void kaleido_on_voice(const char *text)
         kaleido_open(&kaleido_app_trader);
         return;
     }
+    if (__ci_contains(text, "stepfun") || __ci_contains(text, "step fun") ||
+        __ci_contains(text, "browser") || __ci_contains(text, "computer") ||
+        __ci_contains(text, "my pc")) {
+        kaleido_open(&kaleido_app_stepfun);
+        return;
+    }
     /* "open oracle", "show me the daemon", ... — match any facet by name. */
     for (int i = 0; i < s_app_cnt; i++) {
         if (s_apps[i] && s_apps[i]->name && __ci_contains(text, s_apps[i]->name)) {
@@ -642,13 +648,8 @@ static void __guardian_build(KALEIDO_APP_T *self, lv_obj_t *root)
     lv_obj_center(bl);
 }
 
-/* StepFun track — BMO's AI agent that can drive your PC / browse the web
- * (the PC-side browser-use service; this facet is its on-device entry). */
-static KALEIDO_APP_T s_facet_stepfun = {
-    .name = "StepFun", .track = "StepFun", .glyph = LV_SYMBOL_EYE_OPEN, .tint = 0x9B6FF2,
-    .desc = "AI agent \xC2\xB7 tell me a task and I'll drive your PC and browse for you.",
-    .build = __placeholder_build,
-};
+/* StepFun track — the real facet is kaleido_app_stepfun in app_stepfun.c
+ * (BMO -> Pi bridge :8101 -> PC browser agent :8200). Registered below. */
 /* Photon track — teammate-owned. Placeholder; build the real feature into build(). */
 static KALEIDO_APP_T s_facet_photon = {
     .name = "Photon", .track = "Photon", .glyph = LV_SYMBOL_ENVELOPE, .tint = 0xC79BF2,
@@ -672,7 +673,7 @@ void kaleido_start(void)
     /* Register the facets: real ones + placeholders. */
     kaleido_register(&s_facet_guardian);
     kaleido_register(&kaleido_app_arcade);
-    kaleido_register(&s_facet_stepfun);
+    kaleido_register(&kaleido_app_stepfun);
     kaleido_register(&s_facet_photon);
 
     kal_lock();

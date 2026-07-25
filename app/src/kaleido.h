@@ -98,6 +98,7 @@ void      kaleido_toast(const char *msg);
 extern KALEIDO_APP_T kaleido_app_arcade;
 extern KALEIDO_APP_T kaleido_app_brain;
 extern KALEIDO_APP_T kaleido_app_trader;
+extern KALEIDO_APP_T kaleido_app_stepfun;
 
 #ifdef __cplusplus
 }
