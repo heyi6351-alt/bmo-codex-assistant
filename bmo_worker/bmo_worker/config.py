@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Optional, Tuple
 
 
 PROJECT_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,62}[a-z0-9]$")
@@ -44,13 +45,15 @@ class Settings:
     max_search_results: int = 50
     codex_isolated: bool = False
     secure_gateway: bool = False
+    tls_cert_file: Optional[Path] = None
+    tls_key_file: Optional[Path] = None
 
     @classmethod
     def from_env(cls) -> "Settings":
-        token = os.environ.get("BMO_WORKER_TOKEN", "").strip()
+        token = _read_token()
         if len(token) < 24:
             raise ConfigurationError(
-                "BMO_WORKER_TOKEN is required and must contain at least 24 characters"
+                "BMO pairing token is required and must contain at least 24 characters"
             )
 
         default_root = Path.home() / "BMO" / "projects"
@@ -85,12 +88,29 @@ class Settings:
             max_search_results=_positive_int("BMO_MAX_SEARCH_RESULTS", 50),
             codex_isolated=os.environ.get("BMO_CODEX_ISOLATED") == "1",
             secure_gateway=os.environ.get("BMO_SECURE_GATEWAY") == "1",
+            tls_cert_file=_optional_path(os.environ.get("BMO_TLS_CERT_FILE", "")),
+            tls_key_file=_optional_path(os.environ.get("BMO_TLS_KEY_FILE", "")),
         )
 
     def prepare(self) -> None:
-        if self.bind_host not in {"127.0.0.1", "::1", "localhost"} and not self.secure_gateway:
+        non_loopback = self.bind_host not in {"127.0.0.1", "::1", "localhost"}
+        if non_loopback:
+            if not self.secure_gateway:
+                raise ConfigurationError(
+                    "non-loopback BMO_WORKER_HOST requires BMO_SECURE_GATEWAY=1"
+                )
+            if self.tls_cert_file is None or self.tls_key_file is None:
+                raise ConfigurationError(
+                    "non-loopback BMO PC Worker requires a TLS certificate and key"
+                )
+        if (self.tls_cert_file is None) != (self.tls_key_file is None):
             raise ConfigurationError(
-                "non-loopback BMO_WORKER_HOST requires BMO_SECURE_GATEWAY=1"
+                "BMO_TLS_CERT_FILE and BMO_TLS_KEY_FILE must be configured together"
+            )
+        if self.tls_cert_file is not None and self.tls_key_file is not None:
+            _validate_regular_file("BMO_TLS_CERT_FILE", self.tls_cert_file)
+            _validate_regular_file(
+                "BMO_TLS_KEY_FILE", self.tls_key_file, private=True
             )
 
         workspace = self.workspace_root.expanduser()
@@ -159,6 +179,50 @@ def _read_roots(raw: str) -> Tuple[Tuple[str, Path], ...]:
         roots.append((name, path))
         seen.add(name)
     return tuple(roots)
+
+
+def _read_token() -> str:
+    token = os.environ.get("BMO_WORKER_TOKEN", "").strip()
+    raw_file = os.environ.get("BMO_WORKER_TOKEN_FILE", "").strip()
+    if token and raw_file:
+        raise ConfigurationError(
+            "set only one of BMO_WORKER_TOKEN or BMO_WORKER_TOKEN_FILE"
+        )
+    if not raw_file:
+        return token
+
+    token_file = Path(raw_file).expanduser()
+    _validate_regular_file("BMO_WORKER_TOKEN_FILE", token_file, private=True)
+    try:
+        with token_file.open("r", encoding="utf-8") as handle:
+            value = handle.read(4097)
+    except (OSError, UnicodeError) as exc:
+        raise ConfigurationError("BMO_WORKER_TOKEN_FILE cannot be read") from exc
+    if len(value) > 4096:
+        raise ConfigurationError("BMO_WORKER_TOKEN_FILE is too large")
+    return value.strip()
+
+
+def _optional_path(raw: str) -> Optional[Path]:
+    raw = raw.strip()
+    return Path(raw).expanduser() if raw else None
+
+
+def _validate_regular_file(name: str, path: Path, private: bool = False) -> None:
+    if not path.is_absolute():
+        raise ConfigurationError(f"{name} must be an absolute path")
+    try:
+        link_info = path.lstat()
+    except OSError as exc:
+        raise ConfigurationError(f"{name} is unavailable") from exc
+    if stat.S_ISLNK(link_info.st_mode):
+        raise ConfigurationError(f"{name} must not be a symbolic link")
+    if not stat.S_ISREG(link_info.st_mode):
+        raise ConfigurationError(f"{name} must be a regular file")
+    if private and os.name != "nt" and stat.S_IMODE(link_info.st_mode) & 0o077:
+        raise ConfigurationError(
+            f"{name} must not be readable or writable by group or others"
+        )
 
 
 def validate_project_id(project_id: str) -> str:

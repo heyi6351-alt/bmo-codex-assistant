@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from bmo_worker.config import safe_project_path, validate_project_id
+from bmo_worker.config import (
+    ConfigurationError,
+    Settings,
+    safe_project_path,
+    validate_project_id,
+)
 from bmo_worker.store import JobStore
 
 
@@ -23,6 +30,50 @@ class WorkspaceBoundaryTests(unittest.TestCase):
 
     def test_project_id_is_normalized(self) -> None:
         self.assertEqual(validate_project_id("My-Site"), "my-site")
+
+
+class SecureConfigurationTests(unittest.TestCase):
+    def test_private_token_file_is_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            token_file = Path(tmp) / "pairing-token"
+            token_file.write_text("a-private-pairing-token-with-24-chars\n")
+            token_file.chmod(0o600)
+            with patch.dict(
+                os.environ,
+                {"BMO_WORKER_TOKEN_FILE": str(token_file)},
+                clear=True,
+            ):
+                settings = Settings.from_env()
+            self.assertEqual(
+                settings.token, "a-private-pairing-token-with-24-chars"
+            )
+
+    @unittest.skipIf(os.name == "nt", "POSIX mode bits do not apply on Windows")
+    def test_public_token_file_is_rejected(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            token_file = Path(tmp) / "pairing-token"
+            token_file.write_text("a-private-pairing-token-with-24-chars\n")
+            token_file.chmod(0o644)
+            with patch.dict(
+                os.environ,
+                {"BMO_WORKER_TOKEN_FILE": str(token_file)},
+                clear=True,
+            ), self.assertRaises(ConfigurationError):
+                Settings.from_env()
+
+    def test_non_loopback_requires_tls_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = Settings(
+                token="a-private-pairing-token-with-24-chars",
+                workspace_root=root / "projects",
+                database_path=root / "worker.sqlite3",
+                artifacts_root=root / "artifacts",
+                bind_host="0.0.0.0",
+                secure_gateway=True,
+            )
+            with self.assertRaises(ConfigurationError):
+                settings.prepare()
 
 
 class JobStoreTests(unittest.TestCase):

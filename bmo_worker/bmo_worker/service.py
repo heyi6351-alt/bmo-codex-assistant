@@ -245,7 +245,18 @@ def main() -> None:
     import uvicorn
 
     settings = Settings.from_env()
-    uvicorn.run(create_app(settings), host=settings.bind_host, port=settings.port)
+    settings.prepare()
+    uvicorn.run(
+        create_app(settings),
+        host=settings.bind_host,
+        port=settings.port,
+        ssl_certfile=(
+            str(settings.tls_cert_file) if settings.tls_cert_file is not None else None
+        ),
+        ssl_keyfile=(
+            str(settings.tls_key_file) if settings.tls_key_file is not None else None
+        ),
+    )
 
 
 if __name__ == "__main__":

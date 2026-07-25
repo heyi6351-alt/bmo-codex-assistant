@@ -31,8 +31,11 @@ deploying, purchasing, installing, and host administration are not enabled.
 
 ## Safety boundaries
 
-- Bearer-token device pairing; every `/v1` route is authenticated.
+- Bearer-token device pairing; every `/v1` route is authenticated. The token can
+  live in a private `BMO_WORKER_TOKEN_FILE` instead of process environment.
 - Loopback-only startup unless `BMO_SECURE_GATEWAY=1` is explicitly set.
+  Non-loopback startup also requires built-in HTTPS via `BMO_TLS_CERT_FILE` and
+  `BMO_TLS_KEY_FILE`; the private key must not be accessible to other users.
 - Dedicated worker-owned project root, with database/artifacts outside it.
 - Durable SQLite jobs, idempotency checks, sequenced events, timeout and cancel.
 - Codex is unavailable until the operator confirms an outer OS boundary with
@@ -63,7 +66,7 @@ codex login
 Create a strong pairing token and a new, empty worker directory:
 
 ```powershell
-$env:BMO_WORKER_TOKEN = "replace-with-at-least-24-random-characters"
+$env:BMO_WORKER_TOKEN_FILE = "D:\BMO\secrets\pairing-token"
 $env:BMO_WORKSPACE_ROOT = "D:\BMO\projects"
 $env:BMO_WORKER_HOST = "127.0.0.1"
 $env:BMO_CODEX_ISOLATED = "1"
@@ -80,6 +83,16 @@ Keep the default loopback bind. For the Orange Pi connection, place the worker
 behind an authenticated TLS gateway or Tailscale and add a Windows Firewall rule
 restricted to the Pi. Set `BMO_SECURE_GATEWAY=1` only after that gateway exists.
 Never expose port `8210` directly to the public internet.
+
+The worker can also terminate TLS itself. Set `BMO_WORKER_HOST=0.0.0.0`,
+`BMO_SECURE_GATEWAY=1`, `BMO_TLS_CERT_FILE` and `BMO_TLS_KEY_FILE`. The
+certificate must contain the PC hostname or LAN IP used by Armada. Copy only
+the issuing CA certificate—not the private key—to BMO and configure it as
+`ARMADA_PC_CA_FILE`.
+
+The same environment contract works on macOS. Use a dedicated worker account
+or sandbox, keep the token/key files mode `0600`, and expose port `8210` only to
+the Orange Pi with the macOS firewall or a private overlay network.
 
 ## API
 
