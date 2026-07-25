@@ -1,0 +1,7 @@
+# BMO PC Agent dependencies (Python 3.14 fallback stack).
+# browser-use does not install on Python 3.14, so we use Playwright + Anthropic.
+anthropic>=0.40
+playwright>=1.40
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.0
