@@ -3,6 +3,9 @@
 A pocket **BMO** (Adventure Time). Two boards act as one device:
 - **Tuya T5AI-Board** = BMO's face, voice, and touch screen (this repo's `app/`).
 - **Orange Pi 3B** = BMO's always-on brain (runs the `armada` daemon + a trading API).
+- **BMO PC Worker** = the permissioned PC capability executor (`bmo_worker/`):
+  Codex website work, allowlisted file reads/search, system inspection, and
+  fail-closed connector slots for browser, email, and desktop tools.
 
 BMO covers **4 hackathon tracks**, each a "facet" (a screen + voice command) in the
 Kaleidoscope shell:
