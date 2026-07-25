@@ -1,0 +1,5 @@
+
+### range_fade  (target session = Asian)  ── loosen until it fires enough & stays +EV/robust
+  level     fires    Asian(sumR/n/t/rob)  London(sumR/n/t/rob)      NY(sumR/n/t/rob)
+  current      16         +0/9/t+0.2/2·4                   n=3                   n=4
+  medium       45        +2/21/t+0.5/3·4       +1/16/t+0.2/2·4        -4/8/t-1.9/0·4

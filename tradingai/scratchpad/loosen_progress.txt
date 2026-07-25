@@ -1,0 +1,10 @@
+     .. range_fade/current/bear2022: 7 cum
+     .. range_fade/current/bull2025: 10 cum
+     .. range_fade/current/chop2026: 12 cum
+     .. range_fade/current/range2021: 16 cum
+     .. range_fade/medium/bear2022: 14 cum
+     .. range_fade/medium/bull2025: 28 cum
+     .. range_fade/medium/chop2026: 37 cum
+     .. range_fade/medium/range2021: 45 cum
+     .. range_fade/loose/bear2022: 88 cum
+     .. range_fade/loose/bull2025: 150 cum

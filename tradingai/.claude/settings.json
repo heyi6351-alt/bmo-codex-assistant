@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \" *)"
+    ],
+    "additionalDirectories": [
+      "C:\\Users\\SETUPG~1\\AppData\\Local\\Temp\\claude\\c--Users-Setup-Game-OneDrive-Desktop-tradingaI\\c7abc06a-d358-41a5-80e3-290b2bdbe41a\\scratchpad"
+    ]
+  }
+}

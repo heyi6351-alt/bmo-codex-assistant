@@ -1,0 +1,35 @@
+RANGE-EDGE PROBE | cost 0.2px | canonical mean-reversion, low-ADX only
+
+### Bollinger reversion | M5 | stop 1.0×ATR tp=mean
+  regime          n   WR%    sumR   meanR      t   drag
+  bear2022      297    52    -7.8  -0.026   -0.5   149%
+  bull2025      252    33   -31.1  -0.124   -1.9    inf
+  chop2026      299    33   +13.3  +0.045   +0.6    50%
+  range2021     308    56    -7.2  -0.023   -0.5   141%
+  POOLED       1156    44   -32.8  -0.028   -0.9   168%
+
+### RSI-2 extreme fade | M5 | stop 1.5×ATR tp=mean
+  regime          n   WR%    sumR   meanR      t   drag
+  bear2022      894    50   -42.7  -0.048   -1.7   260%
+  bull2025      967    39  -102.6  -0.106   -3.3    inf
+  chop2026      815    40   -47.3  -0.058   -1.7    inf
+  range2021     865    50   -71.0  -0.082   -2.8    inf
+  POOLED       3541    45  -263.6  -0.074   -4.8    inf
+
+### Bollinger reversion | M15 | stop 1.0×ATR tp=mean
+  regime          n   WR%    sumR   meanR      t   drag
+  bear2022      102    42    +9.2  +0.090   +0.8    46%
+  bull2025      107    38   +21.7  +0.203   +1.6    23%
+  chop2026       93    39   +14.8  +0.160   +1.3    13%
+  range2021      90    36   -16.0  -0.178   -1.6    inf
+  POOLED        392    39   +29.7  +0.076   +1.3    44%
+
+### RSI-2 extreme fade | M15 | stop 1.5×ATR tp=mean
+  regime          n   WR%    sumR   meanR      t   drag
+  bear2022      250    44    -8.5  -0.034   -0.6   208%
+  bull2025      348    46    +4.1  +0.012   +0.2    77%
+  chop2026      241    43    -7.1  -0.030   -0.5    inf
+  range2021     257    41   -26.4  -0.103   -1.7    inf
+  POOLED       1096    44   -37.9  -0.035   -1.2   370%
+
+Read: a REAL range edge = pooled meanR>0 with t≥~2 AND cost drag <33% (Carver). Watch if M15 beats M5 on drag (the proven wider-geometry lever). If nothing clears it, gold ranges aren't profitably tradeable at our cost — the bot is RIGHT to wait, and 'more trades' would mean losses.

@@ -1,0 +1,22 @@
+STRATEGY x SESSION edge matrix | 4 regimes | cost 0.2px | step 3
+cell = sumR / n / t ; robust column = #regimes with sumR>0 (of 4)
+
+[dumped 930 rows -> scratchpad/ssm_rows.csv]
+
+strategy                   Asian              London                  NY      robust(+/4 per sess)
+--------------------------------------------------------------------------------------------------
+secondentry        -2/263/t-0.1-     +32/211/t+2.0**      -11/256/t-0.7-             A:2  L:3  N:2
+trend               -7/51/t-1.0-        +0/26/t+0.0+       -10/40/t-2.0-             A:2  L:3  N:0
+breakout            -5/10/t-1.3-                 n=4        +1/11/t+0.3+             A:0  L:-  N:2
+range_fade                   n=9                 n=3                 n=4             A:-  L:-  N:-
+squeeze             -0/18/t-0.1-        +7/17/t+1.2+                 n=7             A:1  L:4  N:-
+
+=== ALL-SESSION PORTFOLIO: which strategy OWNS each session (pooled + robustness) ===
+  Asian  : secondentry(-2R,t-0.1,2/4)  trend(-7R,t-1.0,2/4)
+           -> GAP — no robust +EV strategy (research target)
+  London : secondentry(+32R,t+2.0,3/4)  trend(+0R,t+0.0,3/4)
+           -> OWNER = secondentry (robust +EV)
+  NY     : trend(-10R,t-2.0,0/4)  secondentry(-11R,t-0.7,2/4)
+           -> GAP — no robust +EV strategy (research target)
+
+SESSION_WEIGHTS rule: weight UP a (session,strategy) only if pooled sumR>0, t>=1.0, AND positive in >=3/4 regimes. Weight DOWN the robustly-negative cells. Never zero (sizing, not gating). Validate OOS next.

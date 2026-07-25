@@ -1,0 +1,22 @@
+CROSS-INSTRUMENT secondentry validation | native geometry | per-instrument cost | step 5
+
+symbol        cost     n   WR%    sumR   meanR      t   drag  MinTRL | OOS(recent40%) meanR/t  verdict
+------------------------------------------------------------------------------------------------------------
+XAUUSD     0.20000   627    44   +94.8  +0.151   +2.7    33%     221 |           +0.217/t+2.4  no
+EURUSD     0.00003   183    48   +30.0  +0.164   +1.6    49%     189 |           +0.297/t+1.8  no
+GBPUSD     0.00007   199    45   -19.8  -0.099   -1.1   171%     inf |           -0.095/t-0.7  no
+USDJPY     0.00400   208    45    -0.9  -0.005   -0.0   103%     inf |           -0.149/t-1.1  no
+USDCHF     0.00003   200    47   +13.9  +0.070   +0.7    74%     982 |           +0.272/t+1.8  no
+AUDUSD     0.00003   191    46    -0.5  -0.002   -0.0   101%     inf |           +0.235/t+1.5  no
+USDCAD     0.00002   181    42    -4.8  -0.027   -0.3   128%     inf |           +0.051/t+0.3  no
+NZDUSD     0.00045   187    40   -44.2  -0.236   -3.5   343%     inf |           -0.091/t-0.9  no
+XAGUSD     0.05000   227    47   -35.9  -0.158   -2.1   218%     inf |           -0.209/t-1.8  no
+EURJPY     0.00300   211    47   +15.4  +0.073   +0.8    62%     827 |           +0.252/t+1.7  no
+GBPJPY     0.01400   208    45   -28.4  -0.136   -1.7   200%     inf |           -0.060/t-0.5  no
+US500      0.30000   181    37   -13.7  -0.076   -0.8   235%     inf |           -0.133/t-0.8  no
+USTEC      0.90000   192    39    -7.8  -0.041   -0.4   212%     inf |           -0.146/t-1.0  no
+DE40       0.80000   195    47   +52.7  +0.270   +2.5    22%      77 |           +0.158/t+1.0  *** PASS
+
+======================================================================
+PASS (positive, t>=2, cost-drag<33%, OOS-recent still +): ['DE40']
+A PASS = a candidate to PROPOSE adding (owner approves before any live change). Gold XAUUSD is the benchmark row. Same fresh-OOS discipline that killed the range edge.

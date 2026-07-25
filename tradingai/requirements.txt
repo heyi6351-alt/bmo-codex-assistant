@@ -1,0 +1,26 @@
+# ── Core ───────────────────────────────────────────────────────────────
+python-telegram-bot[job-queue]>=21.6,<22   # bot + built-in JobQueue (APScheduler)
+openai>=1.55,<2                             # NVIDIA NIM is OpenAI-API compatible
+python-dotenv>=1.0                          # load .env
+requests>=2.32                              # REST calls (Twelve Data, Alpha Vantage)
+
+# ── Data / analysis ────────────────────────────────────────────────────
+pandas>=2.2                                 # candles + indicator math
+numpy>=1.26                                 # indicator math
+feedparser>=6.0                             # RSS news fallback
+vaderSentiment>=3.3.2                        # fast local sentiment scoring
+yfinance>=0.2.50                            # historical-price fallback
+
+# ── Web research (LLM tools) ───────────────────────────────────────────
+tavily-python>=0.5                          # search + extract (primary)
+trafilatura>=1.12                           # free local page-content fetch
+ddgs>=6.0                                   # no-key DuckDuckGo fallback search
+
+# ── ML predictor (extra analyst vote) ──────────────────────────────────
+scikit-learn>=1.4                           # gradient-boosting fallback + walk-forward CV
+
+# ── Optional (uncomment if you have the keys / want them) ──────────────
+# xgboost>=2.0                              # upgrades the ML predictor (else sklearn is used)
+# exa-py>=1.8                               # semantic search (secondary)
+# firecrawl-py>=1.6                         # JS-heavy / anti-bot page fetch fallback
+# oandapyV20>=0.7                           # OANDA live broker quotes (demo acct = free)
