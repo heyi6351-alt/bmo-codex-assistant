@@ -1,6 +1,6 @@
 /**
  * @file app_face.h
- * @brief A BMO-style animated face for the T5AI screen (LVGL 8).
+ * @brief A BMO-style animated face for the T5AI screen (LVGL 9).
  *
  * A vector-drawn, expressive face — two blinking eyes and a mouth that smiles,
  * frowns, and "talks" — inspired by BMO from Adventure Time. It draws with LVGL
