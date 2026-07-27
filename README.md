@@ -1,91 +1,167 @@
-# advx-bmo — BMO (AdventureX 2026)
+# BMO Codex Assistant
 
-A pocket **BMO** (Adventure Time). Two boards act as one device:
-- **Tuya T5AI-Board** = BMO's face, voice, and touch screen (this repo's `app/`).
-- **Orange Pi 3B** = BMO's always-on brain (runs the `armada` daemon + a trading API).
-- **BMO PC Worker** = the permissioned PC capability executor (`bmo_worker/`):
-  Codex website work, allowlisted file reads/search, system inspection, and
-  fail-closed connector slots for browser, email, and desktop tools.
+一个放在工位上的实体 **BMO**（读作“哔某”）：无需按键，用中英文语音唤醒，
+由 Codex 作为大脑回答问题、执行 coding 任务，并在明确授权后调用飞书日历、
+任务和消息能力。
 
-## Post-hackathon rebuild: BMO Codex assistant
+当前硬件目标已经统一为：
 
-The sponsor-owned Tuya and Orange Pi boards must be returned. The portable
-replacement target is a **Radxa ZERO 3W 2 GB** running 64-bit Debian, with a
-3.5-inch HDMI display and a ReSpeaker Lite USB two-microphone array.
+> **Radxa ZERO 3W 2GB + ReSpeaker Lite USB + HDMI 小屏**
 
-`voice_assistant/` adds a board-independent, always-on voice layer whose brain is
-Codex:
+比赛期间使用的 Orange Pi 和 Tuya T5AI 不再是运行依赖。原始比赛代码仍保留
+作历史参考，说明见
+[`docs/ADVENTUREX_2026_LEGACY.md`](docs/ADVENTUREX_2026_LEGACY.md)。
 
-- always-on, offline BMO wake phrases (`BMO`/“哔某”, `你好 BMO`,
-  `Hey BMO`; recognition aliases are configurable);
-- no push-to-talk button;
-- Chinese/English command transcription through local whisper.cpp;
-- conservative routing: ordinary questions go to GPT through Codex, explicit
-  coding instructions enter a project workspace, and explicit function requests
-  may use Lark;
-- one persistent Codex session for conversation, coding, skills and tools;
-- Lark agenda/task briefings, meeting reminders five minutes before start,
-  arrival briefings, and a deadline planner that is draft-only by default;
-- local bilingual TTS with AEC-assisted, energy-based barge-in during playback;
-- `idle` / `listening` / `thinking` / `speaking` / `error` events for either a
-  web frontend or the existing BMO face-state bridge.
+## BMO 能做什么
 
-Start with [`voice_assistant/README.md`](voice_assistant/README.md) and
-[`HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md`](HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md).
-The original Tuya firmware remains as a visual/interaction reference, not the
-portable runtime target.
+- 识别 `BMO / 哔某 / 你好 BMO / Hey BMO`，不需要按键；
+- 自动识别中文和英文；
+- 普通问题交给 GPT/Codex，只返回语音答案，不执行工具；
+- 明确的 coding 指令交给 Codex，在指定项目中修改代码并运行检查；
+- 明确的功能指令按权限调用飞书，例如查看日程、创建任务和规划时间；
+- 开会前五分钟语音提醒；
+- 检测到你回到工位后，主动播报日程和待办摘要；
+- 根据 DDL、任务和日历冲突生成专注时间规划；
+- 播报期间保持监听，支持通过 ReSpeaker AEC 和能量检测打断；
+- 在 HDMI 小屏显示待机、聆听、思考、说话和错误状态。
 
-BMO covers **4 hackathon tracks**, each a "facet" (a screen + voice command) in the
-Kaleidoscope shell:
+## 指令路由
 
-| Track | Facet file | Owner | Status |
-|---|---|---|---|
-| **PANDA AI** (AI trading) | `app/src/app_trader.c` | **teammates** | working (shows live signals from the Pi) |
-| **Photon** | `app/src/kaleido.c` → `s_facet_photon` (make `app/src/app_photon.c`) | **teammates** | placeholder — build it out |
-| **StepFun** (AI agent drives your PC/browser) | `app/src/kaleido.c` → `s_facet_stepfun` + `pc_agent/` | core team | in progress |
-| **LiberNovo** (always-on personal daemon) | `app/src/app_brain.c` (+ Armada on the Pi) | core team | working |
-
-## Who edits what
-- **Teammates: own `PANDA AI` and `Photon`.** Edit `app/src/app_trader.c` (PANDA AI) and
-  build the `Photon` facet (start from the `s_facet_photon` placeholder in `kaleido.c`, or
-  copy `app/src/app_arcade.c` into a new `app/src/app_photon.c` — it's the cleanest facet
-  template — then register it in `kaleido.c`).
-- Don't touch `app_brain.c` / `app_stepfun*` / `pc_agent/` (core team's StepFun + LiberNovo).
-
-## How a facet works (the Kaleidoscope shell)
-A facet is a `KALEIDO_APP_T` (see `app/src/kaleido.h`):
-```c
-KALEIDO_APP_T kaleido_app_x = {
-    .name = "X", .track = "PANDA AI",
-    .glyph = LV_SYMBOL_CHARGE, .tint = 0xF6C453,   // tint is a plain 0xRRGGBB uint32!
-    .desc = "one friendly line",
-    .build = __build,      // draws the facet UI into `root`
-};
+```text
+“哔某”
+   │
+   ▼
+中英双语转写
+   │
+   ├── 普通问题 ──→ GPT / Codex 只读回答 ──→ 语音播报
+   │
+   ├── Coding 指令 → Codex 项目工作区 ────→ 修改 + 测试 + 汇报
+   │
+   └── 功能指令 ──→ 飞书日历 / 任务 / 消息 → 结果或确认
 ```
-Register it in `kaleido.c`'s `kaleido_start()` with `kaleido_register(&kaleido_app_x)`.
-Add a voice trigger in `kaleido_on_voice()`.
 
-**Hard rules (LVGL 9, -Werror):**
-- `.tint` must be a plain `0xRRGGBB` constant — never `lv_color_hex()` in a static init.
-- Never touch LVGL objects from a worker thread. Do HTTP/work on a `tal_thread`, publish to
-  the UI via a `static volatile` buffer + flag read by an `lv_timer` (copy the pattern in
-  `app_trader.c` / `app_brain.c`).
-- HTTP: use `http_client_request`/`http_client_free` like `app_trader.c` — never pre-alloc or
-  free `response->buffer` (the library owns it).
+路由默认保守：没有明确执行动词时按“提问”处理。例如：
 
-## Build & flash
-This is only the **app** — it plugs into the TuyaOpen SDK. Full steps are in
-**`BMO_HANDOFF.md`** (architecture, gotchas) and **`KIMI_INSTRUCTIONS.md`** (ordered tasks).
-Short version:
-1. Get the TuyaOpen SDK (T5AI). Copy `app/` into `apps/tuya.ai/your_chat_bot` and
-   `board/tuya_t5ai_ex_module.h` into `boards/T5AI/TUYA_T5AI_BOARD/`.
-2. Build: `. .\export.ps1` → `cd apps/tuya.ai/your_chat_bot` → `tos.py build` (must say `Board: TUYA_T5AI_BOARD`).
-3. Flash: `flash_fast.ps1` (**COM5**, not COM4).
-4. Voice: press & **hold the KEY button**, speak, release.
+| 语音 | 路由 | 行为 |
+|---|---|---|
+| “日历是什么？” | 提问 | 解释概念，不调用飞书 |
+| “查看我今天的日历” | 功能 | 读取当天日程 |
+| “CSS subgrid 怎么用？” | 提问 | 返回技术解释 |
+| “修改 demo 的登录页并跑测试” | Coding | 进入授权项目执行 |
 
-## Config you must set (not in this repo — redacted)
-- `app/include/tuya_config.h`: your Tuya **PID + UUID + AuthKey** (get from iot.tuya.com).
-- `pc_agent/`: an `ANTHROPIC_API_KEY` in the environment (for the browser agent).
-- The Orange Pi IP is hard-coded in `app_brain.c` / `app_trader.c` — update it to your Pi's IP.
+## 系统结构
 
-See `BMO_HANDOFF.md` for the full picture (including the known Tuya-cloud/China-DC voice caveat).
+```text
+Radxa ZERO 3W
+  ├── USB → ReSpeaker Lite → 4Ω 5W 扬声器
+  ├── HDMI → BMO 表情屏
+  └── Debian / Radxa OS
+        ├── 本地 Vosk 唤醒词
+        ├── whisper.cpp 中英转写
+        ├── BMO 意图路由与主动提醒
+        ├── Codex CLI
+        ├── lark-cli / 飞书 Skills
+        └── 本地网页表情 + Chromium Kiosk
+```
+
+大语言模型推理通过网络完成，不在 2GB 板子上运行本地大模型。唤醒词检测在
+本地进行，唤醒前不需要向云端发送持续音频。
+
+## 从这里开始
+
+### 1. 准备硬件
+
+先阅读：
+
+- [采购清单](CODEX_DESK_ASSISTANT_BOM_ZH.md)
+- [Radxa ZERO 3W 接线、烧录与硬件验收](HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md)
+
+### 2. 在板子上安装
+
+```bash
+git clone https://github.com/heyi6351-alt/bmo-codex-assistant.git
+cd bmo-codex-assistant/voice_assistant
+
+sudo ./deploy/install-radxa-zero3w.sh
+sudo ./deploy/install-voice-models.sh
+sudo ./deploy/check-radxa-hardware.sh
+```
+
+### 3. 授权 Codex 与飞书
+
+账号授权必须由 BMO 所有者完成，不要把 token 或密钥交给硬件开发。
+
+```bash
+sudo -iu bmo
+
+curl -fsSL https://chatgpt.com/codex/install.sh \
+  | CODEX_NON_INTERACTIVE=1 sh
+codex login --device-auth
+
+npm config set prefix "$HOME/.npm-global"
+npm install -g @larksuite/cli
+npx -y skills add larksuite/cli -g
+lark-cli config init --new
+lark-cli auth login --domain calendar,task,im
+```
+
+### 4. 检查并启动
+
+根据真实声卡名称编辑 `/etc/bmo/voice.env`，然后运行：
+
+```bash
+sudo -iu bmo
+cd /opt/bmo/voice_assistant
+set -a
+. /etc/bmo/voice.env
+set +a
+.venv/bin/python -m bmo_voice --check
+exit
+
+sudo systemctl enable --now bmo-display bmo-kiosk bmo-voice
+```
+
+查看运行日志：
+
+```bash
+journalctl -u bmo-display -u bmo-kiosk -u bmo-voice -f
+```
+
+## 仓库结构
+
+| 路径 | 用途 |
+|---|---|
+| `voice_assistant/bmo_voice/` | 唤醒、录音、路由、Codex、飞书、提醒和 TTS |
+| `voice_assistant/web/` | 本地 BMO HDMI 表情界面 |
+| `voice_assistant/deploy/` | Radxa 安装、自检和 systemd 服务 |
+| `voice_assistant/tests/` | 核心逻辑和显示服务测试 |
+| `voice_assistant/codex_workspace/` | BMO 执行 coding 时的安全工作区规则 |
+| `app/`, `board/`, `bmo_worker/`, `pc_agent/` | AdventureX 2026 历史实现 |
+
+## 当前状态
+
+| 模块 | 状态 |
+|---|---|
+| 中英唤醒、转写和意图路由 | 已实现并有自动化测试 |
+| Codex 连续会话与 coding 路由 | 已实现 |
+| 飞书日程、待办、会前提醒和日程草案 | 已实现 |
+| 回到工位后的主动播报 | 已实现文件式 presence 接口 |
+| AEC 辅助插话 | 已实现，需在最终外壳中调阈值 |
+| 640×480 HDMI 表情页面 | 已实现并完成浏览器渲染检查 |
+| Radxa + ReSpeaker + 小屏整机 | 等待真实硬件验收 |
+
+目前的自动规划默认只生成草案。只有显式设置
+`BMO_AUTOPLAN_WRITES=1` 后，才允许创建无参会人的个人专注时间块；不会修改
+已有会议。
+
+## 本地测试
+
+```bash
+cd voice_assistant
+PYTHONPATH=. python3 -m unittest discover -s tests -v
+PYTHONPYCACHEPREFIX=/tmp/bmo-pycache \
+  python3 -m compileall -q bmo_voice tests
+```
+
+详细软件说明见 [`voice_assistant/README.md`](voice_assistant/README.md)，工作拆分
+见 [`CODEX_DESK_ASSISTANT_WORKLIST_ZH.md`](CODEX_DESK_ASSISTANT_WORKLIST_ZH.md)。
