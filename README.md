@@ -7,6 +7,34 @@ A pocket **BMO** (Adventure Time). Two boards act as one device:
   Codex website work, allowlisted file reads/search, system inspection, and
   fail-closed connector slots for browser, email, and desktop tools.
 
+## Post-hackathon rebuild: BMO Codex assistant
+
+The sponsor-owned Tuya and Orange Pi boards must be returned. The portable
+replacement target is a **Radxa ZERO 3W 2 GB** running 64-bit Debian, with a
+3.5-inch HDMI display and a ReSpeaker Lite USB two-microphone array.
+
+`voice_assistant/` adds a board-independent, always-on voice layer whose brain is
+Codex:
+
+- always-on, offline BMO wake phrases (`BMO`/“哔某”, `你好 BMO`,
+  `Hey BMO`; recognition aliases are configurable);
+- no push-to-talk button;
+- Chinese/English command transcription through local whisper.cpp;
+- conservative routing: ordinary questions go to GPT through Codex, explicit
+  coding instructions enter a project workspace, and explicit function requests
+  may use Lark;
+- one persistent Codex session for conversation, coding, skills and tools;
+- Lark agenda/task briefings, meeting reminders five minutes before start,
+  arrival briefings, and a deadline planner that is draft-only by default;
+- local bilingual TTS with AEC-assisted, energy-based barge-in during playback;
+- `idle` / `listening` / `thinking` / `speaking` / `error` events for either a
+  web frontend or the existing BMO face-state bridge.
+
+Start with [`voice_assistant/README.md`](voice_assistant/README.md) and
+[`HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md`](HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md).
+The original Tuya firmware remains as a visual/interaction reference, not the
+portable runtime target.
+
 BMO covers **4 hackathon tracks**, each a "facet" (a screen + voice command) in the
 Kaleidoscope shell:
 

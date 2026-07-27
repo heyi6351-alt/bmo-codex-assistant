@@ -1,0 +1,29 @@
+[Unit]
+Description=BMO hands-free Codex desk assistant
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=bmo
+Group=bmo
+WorkingDirectory=/opt/bmo/voice_assistant
+EnvironmentFile=/etc/bmo/voice.env
+Environment=HOME=/home/bmo
+Environment=PATH=/home/bmo/.local/bin:/home/bmo/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/bmo/voice_assistant/.venv/bin/python -m bmo_voice
+Restart=always
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+# Codex config and lark-cli auth are read from /home/bmo. Only BMO state,
+# project workspaces, and the CLI credential/config directories are writable.
+ReadWritePaths=/var/lib/bmo /run/bmo -/home/bmo/.codex -/home/bmo/.lark-cli -/home/bmo/.config/lark
+SupplementaryGroups=audio
+
+[Install]
+WantedBy=multi-user.target

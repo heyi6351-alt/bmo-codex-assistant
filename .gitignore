@@ -5,5 +5,9 @@ __pycache__/
 .venv/
 *.pyc
 .env
+voice.env
+auth.json
+*.auth.json
+*.token
 node_modules/
 bmo_worker/.state/

@@ -1,0 +1,22 @@
+[Unit]
+Description=BMO HDMI kiosk
+After=bmo-display.service
+Requires=bmo-display.service
+Conflicts=getty@tty1.service
+
+[Service]
+Type=simple
+User=bmo
+Group=bmo
+Environment=HOME=/home/bmo
+TTYPath=/dev/tty1
+StandardInput=tty
+StandardOutput=journal
+StandardError=journal
+PAMName=login
+ExecStart=/usr/bin/xinit /opt/bmo/voice_assistant/deploy/xsession.sh -- :0 vt1 -keeptty
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
