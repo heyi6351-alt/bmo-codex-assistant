@@ -18,8 +18,8 @@
 
 主办方的 Orange Pi 和 Tuya T5AI 归还后，可用一套标准 Linux 设备替代：
 
-- Radxa ZERO 3W 2GB（无 eMMC），运行 64 位 Debian Minimal；
-- 3.5 英寸 HDMI 屏；
+- Orange Pi Zero 3 2GB，运行官方 64 位 Debian 12 Bookworm Server；
+- 4.3 英寸 800×480 HDMI IPS 非触摸屏；
 - ReSpeaker Lite USB 两麦阵列；
 - 接在 ReSpeaker 上的 4Ω 5W 扬声器；
 - 可选毫米波在席传感器。
@@ -108,7 +108,7 @@ printf '%s' absent > /run/bmo/presence
 
 上板前仍需：
 
-1. 选择最终 Linux 主机、声卡、屏幕和在席传感器；
+1. 在 Orange Pi Zero 3 真机验收 USB 声卡、屏幕和电源；
 2. 下载模型，安装 Codex、lark-cli、whisper.cpp；
 3. 用专用 `bmo` 用户登录 Codex 和飞书；
 4. 校准麦克风能量阈值、静音时间和扬声器音量；

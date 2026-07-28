@@ -47,7 +47,7 @@ def _boolean(env: Mapping[str, str], name: str, default: bool) -> bool:
 class Settings:
     vosk_model: Path
     whisper_model: Path = Path("/opt/bmo/models/ggml-small.bin")
-    hardware_profile: str = "radxa-zero-3w"
+    hardware_profile: str = "orangepi-zero3-2gb"
     wake_phrases: tuple[str, ...] = (
         "BMO",
         "哔某",
@@ -130,9 +130,9 @@ class Settings:
             vosk_model=Path(raw_vosk).expanduser(),
             whisper_model=Path(raw_whisper).expanduser(),
             hardware_profile=env.get(
-                "BMO_HARDWARE_PROFILE", "radxa-zero-3w"
+                "BMO_HARDWARE_PROFILE", "orangepi-zero3-2gb"
             ).strip()
-            or "radxa-zero-3w",
+            or "orangepi-zero3-2gb",
             wake_phrases=phrases,
             audio_device=device,
             sample_rate=_positive_int(env, "BMO_SAMPLE_RATE", 16_000),

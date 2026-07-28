@@ -19,14 +19,23 @@ if [ -r /proc/device-tree/model ]; then
     MODEL="$(tr -d '\000' </proc/device-tree/model)"
 fi
 case "$MODEL" in
-    *"Radxa ZERO 3W"*|*"Radxa Zero 3W"*) ok "board: $MODEL" ;;
-    *) bad "board is not Radxa ZERO 3W: $MODEL" ;;
+    *"OrangePi Zero3"*|*"Orange Pi Zero3"*|*"Orange Pi Zero 3"*)
+        ok "board: $MODEL"
+        ;;
+    *) bad "board is not Orange Pi Zero 3: $MODEL" ;;
 esac
 
 if [ "$(uname -m)" = "aarch64" ]; then
     ok "architecture: aarch64"
 else
     bad "architecture: $(uname -m)"
+fi
+
+MEMTOTAL_KIB="$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo 2>/dev/null || true)"
+if [ -n "$MEMTOTAL_KIB" ] && [ "$MEMTOTAL_KIB" -ge 1500000 ]; then
+    ok "memory: ${MEMTOTAL_KIB} KiB"
+else
+    bad "expected the 2 GB board; MemTotal is ${MEMTOTAL_KIB:-unknown} KiB"
 fi
 
 if lsusb 2>/dev/null | grep -qi 'respeaker\|xmos'; then

@@ -47,10 +47,11 @@ lock/unlock script. Face recognition is intentionally not required.
 
 ## Install
 
-Primary target: **Radxa ZERO 3W 2 GB**, ReSpeaker Lite over USB, a 4 Ω 5 W
-speaker, and a 3.5-inch HDMI display. The board runs 64-bit Debian Minimal;
-large-model inference remains remote. See
-[`HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md`](../HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md)
+Primary target: **Orange Pi Zero 3 2 GB**, ReSpeaker Lite over USB, a 4 Ω 5 W
+speaker, and a 4.3-inch 800×480 non-touch HDMI display. The board runs the
+official 64-bit Debian 12 Bookworm Server image; large-model inference remains
+remote. See
+[`HARDWARE_BRINGUP_ORANGEPI_ZERO3_ZH.md`](../HARDWARE_BRINGUP_ORANGEPI_ZERO3_ZH.md)
 for the exact wiring, flashing, install, authentication, and acceptance flow.
 
 System prerequisites:
@@ -62,12 +63,12 @@ System prerequisites:
 - PortAudio and `espeak-ng` on Linux
 - a Chinese Vosk model for wake detection
 
-For the Radxa target, start with:
+For the Orange Pi target, start with:
 
 ```bash
-sudo ./deploy/install-radxa-zero3w.sh
+sudo ./deploy/install-orangepi-zero3.sh
 sudo ./deploy/install-voice-models.sh
-sudo ./deploy/check-radxa-hardware.sh
+sudo ./deploy/check-orangepi-zero3-hardware.sh
 ```
 
 The installer creates `/opt/bmo/voice_assistant/.venv`, copies the safe default
@@ -114,7 +115,7 @@ replacement straightforward.
 
 ## Service
 
-The Radxa installer adds three services:
+The Orange Pi installer adds three services:
 
 ```bash
 sudo systemctl daemon-reload

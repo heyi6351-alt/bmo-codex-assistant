@@ -9,8 +9,8 @@ Assistant 的安装说明。
 - **Orange Pi 3B**：运行 Armada daemon 和 trading API。
 - **BMO PC Worker**：位于 `bmo_worker/`，负责受权限约束的电脑能力。
 
-这些板卡由主办方提供并需要归还。当前可复刻版本改用 Radxa ZERO 3W 2GB、
-ReSpeaker Lite USB 和标准 HDMI 屏。
+这些板卡由主办方提供并需要归还。当前可复刻版本改用团队自购的 Orange Pi
+Zero 3 2GB、ReSpeaker Lite USB 和标准 HDMI 屏。
 
 ## 当时的比赛赛道
 

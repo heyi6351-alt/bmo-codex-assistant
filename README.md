@@ -6,10 +6,10 @@
 
 当前硬件目标已经统一为：
 
-> **Radxa ZERO 3W 2GB + ReSpeaker Lite USB + HDMI 小屏**
+> **Orange Pi Zero 3 2GB + ReSpeaker Lite USB + 4.3 英寸 800×480 HDMI 屏**
 
-比赛期间使用的 Orange Pi 和 Tuya T5AI 不再是运行依赖。原始比赛代码仍保留
-作历史参考，说明见
+比赛期间使用的 Orange Pi 3B 和 Tuya T5AI 不再是运行依赖。当前使用的是
+团队自购的 Orange Pi Zero 3；原始比赛代码仍保留作历史参考，说明见
 [`docs/ADVENTUREX_2026_LEGACY.md`](docs/ADVENTUREX_2026_LEGACY.md)。
 
 ## BMO 能做什么
@@ -52,10 +52,10 @@
 ## 系统结构
 
 ```text
-Radxa ZERO 3W
+Orange Pi Zero 3 2GB
   ├── USB → ReSpeaker Lite → 4Ω 5W 扬声器
-  ├── HDMI → BMO 表情屏
-  └── Debian / Radxa OS
+  ├── Micro HDMI → Mini HDMI 驱动板 → 4.3" 800×480 BMO 表情屏
+  └── Debian 12 Bookworm Server
         ├── 本地 Vosk 唤醒词
         ├── whisper.cpp 中英转写
         ├── BMO 意图路由与主动提醒
@@ -74,7 +74,7 @@ Radxa ZERO 3W
 先阅读：
 
 - [采购清单](CODEX_DESK_ASSISTANT_BOM_ZH.md)
-- [Radxa ZERO 3W 接线、烧录与硬件验收](HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md)
+- [Orange Pi Zero 3 接线、烧录与硬件验收](HARDWARE_BRINGUP_ORANGEPI_ZERO3_ZH.md)
 
 ### 2. 在板子上安装
 
@@ -82,9 +82,9 @@ Radxa ZERO 3W
 git clone https://github.com/heyi6351-alt/bmo-codex-assistant.git
 cd bmo-codex-assistant/voice_assistant
 
-sudo ./deploy/install-radxa-zero3w.sh
+sudo ./deploy/install-orangepi-zero3.sh
 sudo ./deploy/install-voice-models.sh
-sudo ./deploy/check-radxa-hardware.sh
+sudo ./deploy/check-orangepi-zero3-hardware.sh
 ```
 
 ### 3. 授权 Codex 与飞书
@@ -133,7 +133,7 @@ journalctl -u bmo-display -u bmo-kiosk -u bmo-voice -f
 |---|---|
 | `voice_assistant/bmo_voice/` | 唤醒、录音、路由、Codex、飞书、提醒和 TTS |
 | `voice_assistant/web/` | 本地 BMO HDMI 表情界面 |
-| `voice_assistant/deploy/` | Radxa 安装、自检和 systemd 服务 |
+| `voice_assistant/deploy/` | Orange Pi 安装、自检和 systemd 服务 |
 | `voice_assistant/tests/` | 核心逻辑和显示服务测试 |
 | `voice_assistant/codex_workspace/` | BMO 执行 coding 时的安全工作区规则 |
 | `app/`, `board/`, `bmo_worker/`, `pc_agent/` | AdventureX 2026 历史实现 |
@@ -147,8 +147,8 @@ journalctl -u bmo-display -u bmo-kiosk -u bmo-voice -f
 | 飞书日程、待办、会前提醒和日程草案 | 已实现 |
 | 回到工位后的主动播报 | 已实现文件式 presence 接口 |
 | AEC 辅助插话 | 已实现，需在最终外壳中调阈值 |
-| 640×480 HDMI 表情页面 | 已实现并完成浏览器渲染检查 |
-| Radxa + ReSpeaker + 小屏整机 | 等待真实硬件验收 |
+| 800×480 HDMI 表情页面 | 已实现响应式布局，等待真屏验收 |
+| Orange Pi Zero 3 + ReSpeaker + 小屏整机 | 等待真实硬件验收 |
 
 目前的自动规划默认只生成草案。只有显式设置
 `BMO_AUTOPLAN_WRITES=1` 后，才允许创建无参会人的个人专注时间块；不会修改

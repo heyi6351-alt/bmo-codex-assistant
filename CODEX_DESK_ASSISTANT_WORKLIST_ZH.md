@@ -25,9 +25,9 @@
 
 ## P0：确定技术方案与预算
 
-- [x] **HW** 主板固定为 Radxa ZERO 3W 2GB（无 eMMC）。
-- [x] **HW/FE** 使用 3.5 英寸 HDMI 小屏作为 BMO 面部显示，先借用现有
-  HDMI 显示器验证前端后再下单小屏。
+- [x] **HW** 主板固定为团队自购 Orange Pi Zero 3 2GB。
+- [x] **HW/FE** 使用 4.3 英寸 800×480 HDMI IPS 非触摸屏作为 BMO
+  面部显示。
 - [x] **VOICE/HW** 全双工版本使用 ReSpeaker Lite USB 两麦阵列；极限省钱
   原型才使用普通 USB 麦克风并接受半双工。
 - [ ] **HW** 在席检测优先使用电脑解锁/空闲恢复或手机蓝牙靠近；误判无法
@@ -247,6 +247,6 @@
 
 1. [ ] 选择最终实时语音供应商。
 2. [ ] 采购或借到 ReSpeaker Lite USB 两麦阵列。
-3. [ ] 在 Radxa 真机上调节 barge-in 阈值并完成 20 轮插话测试。
+3. [ ] 在 Orange Pi Zero 3 真机上调节 barge-in 阈值并完成 20 轮插话测试。
 4. [ ] 将 Codex coding 改成后台 Job。
 5. [ ] 在最终设备用户下完成 Codex 和飞书授权。

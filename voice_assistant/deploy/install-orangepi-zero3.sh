@@ -2,7 +2,7 @@
 set -eu
 
 if [ "$(id -u)" -ne 0 ]; then
-    echo "Run this installer as root: sudo ./deploy/install-radxa-zero3w.sh" >&2
+    echo "Run this installer as root: sudo ./deploy/install-orangepi-zero3.sh" >&2
     exit 1
 fi
 
@@ -17,11 +17,11 @@ if [ -r /proc/device-tree/model ]; then
     MODEL="$(tr -d '\000' </proc/device-tree/model)"
 fi
 case "$MODEL" in
-    *"Radxa ZERO 3W"*|*"Radxa Zero 3W"*)
+    *"OrangePi Zero3"*|*"Orange Pi Zero3"*|*"Orange Pi Zero 3"*)
         ;;
     *)
         if [ "${BMO_ALLOW_OTHER_BOARD:-0}" != "1" ]; then
-            echo "Expected Radxa ZERO 3W, detected: $MODEL" >&2
+            echo "Expected Orange Pi Zero 3, detected: $MODEL" >&2
             echo "Set BMO_ALLOW_OTHER_BOARD=1 only for a deliberate compatible-board test." >&2
             exit 1
         fi
@@ -57,6 +57,7 @@ apt-get install -y \
     unclutter \
     unzip \
     xinit \
+    x11-xserver-utils \
     xserver-xorg
 
 if ! id bmo >/dev/null 2>&1; then
@@ -93,6 +94,9 @@ runuser -u bmo -- "$TARGET_DIR/.venv/bin/pip" install \
 if [ ! -e /etc/bmo/voice.env ]; then
     install -m 0640 -o root -g bmo "$SOURCE_DIR/.env.example" /etc/bmo/voice.env
 fi
+if [ ! -e /etc/bmo/display.env ]; then
+    install -m 0644 "$SOURCE_DIR/deploy/display.env.example" /etc/bmo/display.env
+fi
 
 install -m 0644 "$SOURCE_DIR/deploy/bmo-voice.service" \
     /etc/systemd/system/bmo-voice.service
@@ -107,7 +111,7 @@ systemctl daemon-reload
 systemctl enable bmo-display.service
 
 echo
-echo "Base Radxa installation completed."
+echo "Base Orange Pi Zero 3 installation completed."
 echo "Detected board: $MODEL"
 echo
 echo "Next:"

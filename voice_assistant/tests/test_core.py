@@ -361,6 +361,15 @@ class ConfigurationTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             Settings.from_env({})
 
+    def test_orangepi_zero3_is_the_default_hardware_profile(self) -> None:
+        settings = Settings.from_env(
+            {
+                "BMO_VOSK_MODEL": "/opt/bmo/models/vosk",
+                "BMO_WHISPER_MODEL": "/opt/bmo/models/ggml-base.bin",
+            }
+        )
+        self.assertEqual(settings.hardware_profile, "orangepi-zero3-2gb")
+
 
 if __name__ == "__main__":
     unittest.main()
