@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -20,8 +21,18 @@ FACE_BY_STATE = {
     "interrupted": "LISTENING",
     "thinking": "THINKING",
     "speaking": "SPEAKING",
+    "tool_call": "THINKING",
+    "coding": "THINKING",
+    "reminder": "surprised",
+    "planning": "THINKING",
+    "confirmation": "surprised",
+    "done": "neutral",
+    "cancelled": "neutral",
+    "failed": "sad",
+    "offline": "sad",
     "error": "sad",
 }
+TRANSIENT_FIELDS = {"intent", "transcript", "reply", "subtitle", "error"}
 
 
 class EventSink:
@@ -29,16 +40,21 @@ class EventSink:
         self.state_file = state_file
         self.body_url = body_url
         self._last: dict[str, Any] = {}
+        self._lock = threading.Lock()
 
     def emit(self, state: str, **fields: Any) -> None:
-        payload = {
-            **self._last,
-            **fields,
-            "state": state,
-            "updated_at": time.time(),
-        }
-        self._last = payload
-        self._write_snapshot(payload)
+        with self._lock:
+            previous = dict(self._last)
+            for name in TRANSIENT_FIELDS - fields.keys():
+                previous.pop(name, None)
+            payload = {
+                **previous,
+                **fields,
+                "state": state,
+                "updated_at": time.time(),
+            }
+            self._last = payload
+            self._write_snapshot(payload)
         self._send_face(FACE_BY_STATE.get(state, "neutral"))
 
     def _write_snapshot(self, payload: dict[str, Any]) -> None:
@@ -49,6 +65,7 @@ class EventSink:
                 json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
+            os.chmod(temporary, 0o600)
             os.replace(temporary, self.state_file)
         except OSError as exc:
             LOG.warning("could not write voice state snapshot: %s", exc)

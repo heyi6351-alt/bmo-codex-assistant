@@ -99,14 +99,21 @@ class ConversationController:
             self.events.emit("thinking", transcript=transcript)
             try:
                 reply = self.brain.ask(transcript)
-            except Exception as exc:
+            except Exception:
                 LOG.exception("assistant turn failed")
-                self.events.emit("error", error=str(exc))
+                # Keep internal exception details (paths, env values) out of
+                # the LAN-served state file; logs carry the full traceback.
+                self.events.emit("error", error="assistant turn failed")
                 self.speaker.speak("抱歉，我刚才没有处理成功")
                 microphone.clear()
                 break
 
-            self.events.emit("speaking", transcript=transcript, reply=reply)
+            if getattr(self.brain, "awaiting_confirmation", False):
+                self.events.emit(
+                    "confirmation", transcript=transcript, reply=reply
+                )
+            else:
+                self.events.emit("speaking", transcript=transcript, reply=reply)
             interrupted = self._speak_reply(reply, microphone)
             if interrupted:
                 self.events.emit(

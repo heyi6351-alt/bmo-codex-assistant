@@ -9,10 +9,12 @@ import shutil
 import sys
 
 from .audio import Microphone, VoskWakeDetector, WhisperCppTranscriber
+from .brain import AssistantBrain
 from .codex import CodexBrain
 from .config import ConfigurationError, Settings
 from .core import ConversationController
 from .events import EventSink
+from .jobs import CodexJobManager
 from .lark import LarkClient
 from .proactive import ProactiveScheduler
 from .tts import Speaker
@@ -132,20 +134,25 @@ def main(argv: list[str] | None = None) -> int:
     body_url = "" if args.no_body else settings.body_url
     events = EventSink(settings.state_file, body_url)
     speaker = Speaker(settings)
-    brain = CodexBrain(settings)
+    codex_brain = CodexBrain(settings)
+    job_manager = CodexJobManager(settings, events)
+    lark_client = LarkClient(settings)
+    proactive = ProactiveScheduler(
+        settings, codex_brain, speaker, lark_client, events
+    )
+    assistant = AssistantBrain(
+        settings, events, codex_brain, job_manager, proactive
+    )
     controller = ConversationController(
         VoskWakeDetector(settings),
         WhisperCppTranscriber(settings),
-        brain,
+        assistant,
         speaker,
         events,
         max_turns=settings.max_conversation_turns,
         barge_in_enabled=settings.barge_in_enabled,
         barge_in_energy_threshold=settings.barge_in_energy_threshold,
         barge_in_chunks=settings.barge_in_chunks,
-    )
-    proactive = ProactiveScheduler(
-        settings, brain, speaker, LarkClient(settings)
     )
 
     try:
@@ -155,6 +162,20 @@ def main(argv: list[str] | None = None) -> int:
                     proactive.tick()
                 except Exception:
                     LOG.exception("proactive scheduler tick failed")
+                for message in assistant.poll_notifications():
+                    if "已完成" in message:
+                        state = "done"
+                    elif "已取消" in message:
+                        state = "cancelled"
+                    else:
+                        state = "failed"
+                    try:
+                        events.emit(state, subtitle=message[:300])
+                        speaker.speak(message)
+                    except Exception:
+                        LOG.exception("job notification speech failed")
+                    finally:
+                        events.emit("idle")
                 microphone.clear()
                 if args.once:
                     controller.run_session(microphone)

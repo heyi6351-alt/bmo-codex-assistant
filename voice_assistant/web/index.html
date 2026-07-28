@@ -10,6 +10,10 @@
   <body data-state="idle">
     <main class="screen" aria-live="polite">
       <div class="scanline" aria-hidden="true"></div>
+      <header>
+        <span id="intent" class="pill hidden">IDLE</span>
+        <span id="connection" class="status-dot" title="connection"></span>
+      </header>
       <section class="face" aria-label="BMO 当前为空闲状态">
         <div class="eyes" aria-hidden="true">
           <span class="eye eye-left"></span>
@@ -17,6 +21,21 @@
         </div>
         <div class="mouth" aria-hidden="true"></div>
       </section>
+      <section id="job-card" class="job-card hidden" aria-label="Coding 任务">
+        <div class="job-row">
+          <span class="job-label">JOB</span>
+          <span id="job-id">--</span>
+        </div>
+        <div class="job-row">
+          <span class="job-label">PROJECT</span>
+          <span id="job-project">--</span>
+        </div>
+        <div class="job-row">
+          <span class="job-label">STATE</span>
+          <span id="job-state">--</span>
+        </div>
+      </section>
+      <section id="subtitle" class="subtitle" aria-live="polite"></section>
       <footer>
         <span class="brand">BMO</span>
         <span id="status">READY</span>

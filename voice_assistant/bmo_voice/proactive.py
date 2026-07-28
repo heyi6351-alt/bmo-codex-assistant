@@ -7,10 +7,11 @@ import logging
 import os
 import time
 from datetime import datetime, timedelta
-from typing import Protocol
+from typing import Any, Protocol
 from zoneinfo import ZoneInfo
 
 from .config import Settings
+from .events import EventSink
 from .lark import LarkClient, LarkError
 
 LOG = logging.getLogger(__name__)
@@ -31,6 +32,7 @@ class ProactiveScheduler:
         brain: ProactiveBrain,
         speaker: TextSpeaker,
         lark: LarkClient,
+        events: EventSink | None = None,
         *,
         clock=time.time,
     ):
@@ -38,6 +40,7 @@ class ProactiveScheduler:
         self.brain = brain
         self.speaker = speaker
         self.lark = lark
+        self.events = events
         self.clock = clock
         self.state_path = settings.state_file.with_name("proactive-state.json")
         self.state = self._load_state()
@@ -58,9 +61,34 @@ class ProactiveScheduler:
                 json.dumps(self.state, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
+            os.chmod(temporary, 0o600)
             os.replace(temporary, self.state_path)
         except OSError as exc:
             LOG.warning("could not persist proactive state: %s", exc)
+
+    def suppress_today(self, now: datetime | None = None) -> None:
+        zone = ZoneInfo(self.settings.timezone)
+        now = now or datetime.now(zone)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=zone)
+        self.state["suppress_date"] = now.date().isoformat()
+        self.state["snooze_until"] = 0
+        self._save_state()
+
+    def resume_reminders(self) -> None:
+        self.state.pop("suppress_date", None)
+        self.state["snooze_until"] = 0
+        self._save_state()
+
+    def snooze(self, minutes: int, now: datetime | None = None) -> None:
+        if minutes <= 0:
+            return
+        zone = ZoneInfo(self.settings.timezone)
+        now = now or datetime.fromtimestamp(self.clock(), zone)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=zone)
+        self.state["snooze_until"] = now.timestamp() + minutes * 60
+        self._save_state()
 
     def _present(self) -> bool | None:
         try:
@@ -69,11 +97,53 @@ class ProactiveScheduler:
             return None
         return value.strip().casefold() in {"1", "true", "present", "home", "desk"}
 
+    def _dnd_enabled(self) -> bool:
+        try:
+            value = self.settings.dnd_file.read_text(encoding="utf-8").strip()
+        except OSError:
+            return False
+        return value.casefold() in {"1", "true", "on", "enabled", "dnd"}
+
+    @staticmethod
+    def _parse_time(value: str) -> tuple[int, int]:
+        hour, minute = (int(part) for part in value.split(":"))
+        return hour, minute
+
+    def _in_quiet_hours(self, now: datetime) -> bool:
+        try:
+            start = self._parse_time(self.settings.quiet_hours_start)
+            end = self._parse_time(self.settings.quiet_hours_end)
+        except ValueError:
+            return False
+        current = now.hour * 60 + now.minute
+        start_minutes = start[0] * 60 + start[1]
+        end_minutes = end[0] * 60 + end[1]
+        if start_minutes <= end_minutes:
+            return start_minutes <= current < end_minutes
+        return current >= start_minutes or current < end_minutes
+
+    def _is_suppressed(self, now: datetime) -> bool:
+        if self._dnd_enabled():
+            return True
+        if self._in_quiet_hours(now):
+            return True
+        if self.state.get("suppress_date") == now.date().isoformat():
+            return True
+        snooze_until = float(self.state.get("snooze_until", 0))
+        if now.timestamp() < snooze_until:
+            return True
+        return False
+
     def tick(self, now: datetime | None = None) -> None:
         zone = ZoneInfo(self.settings.timezone)
         now = now or datetime.now(zone)
         if now.tzinfo is None:
             now = now.replace(tzinfo=zone)
+
+        suppressed = self._is_suppressed(now)
+        if suppressed:
+            return
+
         self._check_meetings(now)
         self._check_presence(now)
         self._check_daily_plan(now)
@@ -100,9 +170,8 @@ class ProactiveScheduler:
                 if key in reminded:
                     continue
                 remaining = max(1, round(minutes))
-                self.speaker.speak(
-                    f"提醒你，{meeting.summary}将在{remaining}分钟后开始。"
-                )
+                text = f"提醒你，{meeting.summary}将在{remaining}分钟后开始。"
+                self._emit_proactive("reminder", text)
                 reminded.add(key)
         self.state["reminded_events"] = list(reminded)[-200:]
         self._save_state()
@@ -137,6 +206,9 @@ class ProactiveScheduler:
             self.settings.presence_cooldown_seconds
         )
         if away_long_enough and cooldown_elapsed:
+            # Mark the cooldown before calling the brain: a failing Codex
+            # turn must not turn into a once-per-second retry loop.
+            self.state["arrival_briefing_at"] = now.timestamp()
             snapshot = self._office_snapshot(now, days=1, include_messages=True)
             prompt = (
                 "The user has just returned to their desk. Summarize the local "
@@ -149,8 +221,13 @@ class ProactiveScheduler:
                 f"{json.dumps(snapshot, ensure_ascii=False)[:24000]}\n"
                 "UNTRUSTED_LARK_DATA_END"
             )
-            self.speaker.speak(self.brain.proactive(prompt, allow_writes=False))
-            self.state["arrival_briefing_at"] = now.timestamp()
+            try:
+                self._emit_proactive(
+                    "reminder",
+                    self.brain.proactive(prompt, allow_writes=False),
+                )
+            except Exception:
+                LOG.exception("arrival briefing failed")
         self._save_state()
 
     def _check_daily_plan(self, now: datetime) -> None:
@@ -183,16 +260,27 @@ class ProactiveScheduler:
             "UNTRUSTED_LARK_DATA_END"
         )
         try:
-            self.speaker.speak(
+            self._emit_proactive(
+                "planning",
                 self.brain.proactive(
                     prompt, allow_writes=self.settings.autoplan_writes
-                )
+                ),
             )
         except Exception:
             LOG.exception("daily planning failed")
             return
         self.state["planned_for_date"] = today
         self._save_state()
+
+    def _emit_proactive(self, state: str, text: str) -> None:
+        if self.events is not None:
+            self.events.emit(state, subtitle=text[:300])
+        try:
+            self.speaker.speak(text)
+        except Exception:
+            LOG.exception("proactive speech failed")
+        if self.events is not None:
+            self.events.emit("idle")
 
     def _office_snapshot(
         self, now: datetime, *, days: int, include_messages: bool

@@ -74,7 +74,10 @@ class Settings:
     codex_workspace: Path = Path("/opt/bmo/voice_assistant/codex_workspace")
     codex_project_root: Path = Path("/var/lib/bmo/projects")
     codex_session_file: Path = Path("/var/lib/bmo/codex-session.json")
+    codex_jobs_file: Path = Path("/var/lib/bmo/codex-jobs.json")
+    codex_job_history: int = 50
     codex_timeout_seconds: int = 300
+    confirmation_timeout_seconds: int = 120
     codex_model: str = ""
     codex_profile: str = ""
 
@@ -83,8 +86,11 @@ class Settings:
     agenda_poll_seconds: int = 60
     meeting_reminder_minutes: int = 5
     presence_file: Path = Path("/run/bmo/presence")
+    dnd_file: Path = Path("/run/bmo/dnd")
     presence_absent_seconds: int = 300
     presence_cooldown_seconds: int = 3600
+    quiet_hours_start: str = "22:30"
+    quiet_hours_end: str = "08:00"
     daily_plan_time: str = "09:10"
     autoplan_writes: bool = False
     work_message_query: str = ""
@@ -173,8 +179,17 @@ class Settings:
                     "/var/lib/bmo/codex-session.json",
                 )
             ).expanduser(),
+            codex_jobs_file=Path(
+                env.get("BMO_CODEX_JOBS_FILE", "/var/lib/bmo/codex-jobs.json")
+            ).expanduser(),
+            codex_job_history=_positive_int(
+                env, "BMO_CODEX_JOB_HISTORY", 50
+            ),
             codex_timeout_seconds=_positive_int(
                 env, "BMO_CODEX_TIMEOUT_SECONDS", 300
+            ),
+            confirmation_timeout_seconds=_positive_int(
+                env, "BMO_CONFIRMATION_TIMEOUT_SECONDS", 120
             ),
             codex_model=env.get("BMO_CODEX_MODEL", "").strip(),
             codex_profile=env.get("BMO_CODEX_PROFILE", "").strip(),
@@ -191,12 +206,23 @@ class Settings:
             presence_file=Path(
                 env.get("BMO_PRESENCE_FILE", "/run/bmo/presence")
             ).expanduser(),
+            dnd_file=Path(
+                env.get("BMO_DND_FILE", "/run/bmo/dnd")
+            ).expanduser(),
             presence_absent_seconds=_positive_int(
                 env, "BMO_PRESENCE_ABSENT_SECONDS", 300
             ),
             presence_cooldown_seconds=_positive_int(
                 env, "BMO_PRESENCE_COOLDOWN_SECONDS", 3600
             ),
+            quiet_hours_start=env.get(
+                "BMO_QUIET_HOURS_START", "22:30"
+            ).strip()
+            or "22:30",
+            quiet_hours_end=env.get(
+                "BMO_QUIET_HOURS_END", "08:00"
+            ).strip()
+            or "08:00",
             daily_plan_time=env.get("BMO_DAILY_PLAN_TIME", "09:10").strip(),
             autoplan_writes=_boolean(env, "BMO_AUTOPLAN_WRITES", False),
             work_message_query=env.get("BMO_WORK_MESSAGE_QUERY", "").strip(),
