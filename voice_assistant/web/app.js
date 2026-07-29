@@ -13,6 +13,11 @@ const LABELS = {
   done: "DONE",
   cancelled: "CANCELLED",
   failed: "FAILED",
+  ready: "REVIEW?",
+  publishing: "PUBLISHING",
+  published: "PR OPEN",
+  publish_failed: "PR FAILED",
+  declined: "KEPT LOCAL",
   error: "CHECK ME",
   offline: "OFFLINE",
 };
@@ -22,6 +27,11 @@ const ACTIVE_JOB_STATES = new Set([
   "coding",
   "testing",
   "cancelling",
+  "ready",
+  "publishing",
+  "published",
+  "publish_failed",
+  "declined",
 ]);
 
 const body = document.body;
@@ -35,6 +45,8 @@ const jobCard = document.querySelector("#job-card");
 const jobId = document.querySelector("#job-id");
 const jobProject = document.querySelector("#job-project");
 const jobState = document.querySelector("#job-state");
+const prRow = document.querySelector("#pr-row");
+const prUrl = document.querySelector("#pr-url");
 
 let lastState = "idle";
 let lastSubtitle = "";
@@ -55,6 +67,7 @@ function formatJob(job) {
     id: String(job.id || job.job_id || "--"),
     project: String(job.project || "--"),
     state: String(job.state || "--"),
+    prUrl: String(job.pr_url || ""),
   };
 }
 
@@ -92,9 +105,16 @@ function applyState(payload) {
     jobId.textContent = job.id;
     jobProject.textContent = job.project;
     jobState.textContent = job.state;
+    if (job.prUrl) {
+      prUrl.textContent = job.prUrl;
+      prRow.classList.remove("hidden");
+    } else {
+      prRow.classList.add("hidden");
+    }
     jobCard.classList.remove("hidden");
   } else {
     jobCard.classList.add("hidden");
+    prRow.classList.add("hidden");
   }
 }
 

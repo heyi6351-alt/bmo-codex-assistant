@@ -54,6 +54,8 @@ _CONFIRM_NO_CONTAINS = (
     "不对",
     "再想想",
     "别执行",
+    "不发布",
+    "先不发布",
 )
 _CONFIRM_NO_PREFIXES = ("no", "nope", "cancel", "stop")
 
@@ -62,6 +64,29 @@ _CONFIRM_NO_PREFIXES = ("no", "nope", "cancel", "stop")
 _PROGRESS_TERMS = ("进度", "做到哪", "改好了吗", "写好了吗", "status", "progress")
 _JOB_TERMS = ("job", "coding", "任务", "代码", "项目")
 _QUERY_TERMS = ("怎么样", "如何", "完成了吗", "做完了吗", "状态", "done", "finished")
+_PUBLISH_CONFIRM_TERMS = (
+    "确认发布",
+    "创建pr",
+    "创建pullrequest",
+    "发布pr",
+    "上传到github",
+    "createpr",
+    "publishpr",
+)
+_PUBLISH_RETRY_TERMS = (
+    "重新发布",
+    "重试发布",
+    "再次发布",
+    "再创建pr",
+    "retrypublish",
+)
+_PUBLISH_DECLINE_TERMS = (
+    "不发布",
+    "先不发布",
+    "不要发布",
+    "保留本地",
+    "keeplocal",
+)
 
 
 class AssistantBrain:
@@ -80,10 +105,15 @@ class AssistantBrain:
         scheduler: ProactiveScheduler,
         *,
         clock=time.monotonic,
+        question_brain=None,
     ):
         self.settings = settings
         self.events = events
         self.codex = codex
+        # Questions (and chit-chat) may go to a cheaper text brain to spare Codex
+        # quota; actions still use Codex, which can execute Lark tools. Defaults
+        # to codex so existing behavior is unchanged.
+        self.question_brain = question_brain or codex
         self.jobs = jobs
         self.scheduler = scheduler
         self.clock = clock
@@ -106,6 +136,10 @@ class AssistantBrain:
 
         if self._pending is not None:
             return self._resolve_confirmation(normalized)
+
+        publish = self._handle_publish_decision(normalized)
+        if publish is not None:
+            return publish
 
         preference = self._handle_reminder_preferences(normalized)
         if preference:
@@ -133,10 +167,47 @@ class AssistantBrain:
 
         return self._handle_question(request)
 
+    @staticmethod
+    def _compact(text: str) -> str:
+        return re.sub(r"[\s_\-，。！？、,.!?;；:：]+", "", text.casefold())
+
+    def _handle_publish_decision(self, transcript: str) -> str | None:
+        compact = self._compact(transcript)
+        candidate = self.jobs.publish_candidate()
+        has_retry = any(term in compact for term in _PUBLISH_RETRY_TERMS)
+        has_decline = any(term in compact for term in _PUBLISH_DECLINE_TERMS)
+        has_confirm = any(term in compact for term in _PUBLISH_CONFIRM_TERMS)
+        decision = self._confirmation_decision(transcript)
+
+        if candidate is None:
+            if has_retry or has_decline or has_confirm:
+                return "目前没有可创建 PR 的 coding 改动。"
+            return None
+
+        if has_decline or decision is False:
+            if candidate.state == "ready":
+                return self.jobs.decline_publish(candidate.job_id)
+            if has_decline:
+                return "这个任务当前没有等待发布。"
+            return None
+
+        if has_retry:
+            return self.jobs.reoffer_publish(candidate.job_id)
+
+        if has_confirm or decision is True:
+            request_id = route_request(transcript).request_id
+            _job, message = self.jobs.confirm_publish(
+                candidate.job_id,
+                request_id=request_id,
+            )
+            return message
+
+        return None
+
     def _handle_question(self, request: RoutedRequest) -> str:
         # ConversationController owns the per-turn thinking/speaking events;
         # the brain only emits specialized events to avoid duplicates.
-        return self._ask_codex(request)
+        return self._ask(self.question_brain, request)
 
     def _handle_action(self, request: RoutedRequest) -> str:
         if request.requires_confirmation and not request.confirmed:
@@ -150,7 +221,9 @@ class AssistantBrain:
             confidence=request.confidence,
             subtitle="正在调用办公能力",
         )
-        return self._ask_codex(request)
+        # Actions run through Codex, which can execute lark-cli / installed
+        # skills; a plain text brain cannot perform the tool calls.
+        return self._ask(self.codex, request)
 
     def _handle_coding(self, request: RoutedRequest) -> str:
         if request.requires_confirmation and not request.confirmed:
@@ -248,11 +321,12 @@ class AssistantBrain:
 
         return "请说「确认」或「取消」。"
 
-    def _ask_codex(self, request: RoutedRequest) -> str:
-        ask_request = getattr(self.codex, "ask_request", None)
+    @staticmethod
+    def _ask(brain, request: RoutedRequest) -> str:
+        ask_request = getattr(brain, "ask_request", None)
         if callable(ask_request):
             return str(ask_request(request))
-        return self.codex.ask(request.text)
+        return str(brain.ask(request.text))
 
     def _handle_reminder_preferences(self, transcript: str) -> str | None:
         lowered = transcript.casefold()

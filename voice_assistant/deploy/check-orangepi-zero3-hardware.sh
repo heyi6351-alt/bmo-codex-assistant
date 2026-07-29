@@ -1,8 +1,16 @@
 #!/bin/sh
 set -u
 
+# Two-part self-check. The HARDWARE ACCEPTANCE section decides the exit code so a
+# hardware installer can sign off a board BEFORE the owner authorizes any
+# accounts. The OWNER PROVISIONING section is informational only (NOTE lines):
+# Codex/GitHub/Lark auth is the owner's job — per the bringup doc the hardware
+# installer must not touch those credentials — so a missing auth must never make
+# the hardware check report failure.
+
 PASS=0
 FAIL=0
+NOTES=0
 
 ok() {
     PASS=$((PASS + 1))
@@ -13,6 +21,13 @@ bad() {
     FAIL=$((FAIL + 1))
     printf 'FAIL  %s\n' "$1"
 }
+
+note() {
+    NOTES=$((NOTES + 1))
+    printf 'NOTE  %s\n' "$1"
+}
+
+printf '== Hardware acceptance (determines exit code) ==\n'
 
 MODEL="unknown"
 if [ -r /proc/device-tree/model ]; then
@@ -81,7 +96,69 @@ else
     bad "BMO face health endpoint unavailable"
 fi
 
-printf '\nHardware check: %s passed, %s failed\n' "$PASS" "$FAIL"
+# The on-screen face (chromium kiosk) needs no account credentials, so it is a
+# genuine hardware/display acceptance item.
+if systemctl is-active --quiet bmo-kiosk.service; then
+    ok "bmo-kiosk.service active"
+else
+    bad "bmo-kiosk.service inactive (start with: systemctl enable --now bmo-kiosk)"
+fi
+
+# git/gh binaries are installed by install-orangepi-zero3.sh, so their presence
+# is a hardware-side install check (their authentication is owner-only, below).
+if command -v git >/dev/null 2>&1; then
+    ok "Git CLI installed"
+else
+    bad "Git CLI missing"
+fi
+
+if command -v gh >/dev/null 2>&1; then
+    ok "GitHub CLI installed"
+else
+    bad "GitHub CLI missing"
+fi
+
+printf '\n== Owner provisioning (informational; does not affect exit code) ==\n'
+
+# bmo-voice needs the owner's Codex/Lark install and a resolvable audio device;
+# it legitimately stays inactive during the hardware-only phase.
+if systemctl is-active --quiet bmo-voice.service; then
+    note "bmo-voice.service active"
+else
+    note "bmo-voice.service inactive (owner authorizes Codex/Lark, then: systemctl enable --now bmo-voice)"
+fi
+
+# Acceptance requires all three services to auto-recover after a reboot, which
+# means each must be enabled. Report, but do not fail, so hardware can sign off
+# before the owner enables the auth-dependent voice service.
+for svc in bmo-display bmo-kiosk bmo-voice; do
+    if systemctl is-enabled --quiet "$svc.service" 2>/dev/null; then
+        note "$svc.service enabled (auto-starts on boot)"
+    else
+        note "$svc.service not enabled for boot; run: systemctl enable $svc"
+    fi
+done
+
+if command -v gh >/dev/null 2>&1 && id bmo >/dev/null 2>&1 \
+    && runuser -u bmo -- gh auth status >/dev/null 2>&1; then
+    note "GitHub CLI authenticated for bmo"
+else
+    note "GitHub CLI not authenticated for bmo (owner: sudo -iu bmo gh auth login)"
+fi
+
+if id bmo >/dev/null 2>&1 && runuser -u bmo -- sh -lc 'command -v codex' >/dev/null 2>&1; then
+    note "Codex CLI available for bmo"
+else
+    note "Codex CLI not installed for bmo (owner step)"
+fi
+
+if id bmo >/dev/null 2>&1 && runuser -u bmo -- sh -lc 'command -v lark-cli' >/dev/null 2>&1; then
+    note "lark-cli available for bmo"
+else
+    note "lark-cli not installed for bmo (owner step)"
+fi
+
+printf '\nHardware check: %s passed, %s failed, %s notes\n' "$PASS" "$FAIL" "$NOTES"
 if [ "$FAIL" -ne 0 ]; then
     exit 1
 fi

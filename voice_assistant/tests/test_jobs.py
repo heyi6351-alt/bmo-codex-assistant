@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 from bmo_voice.config import Settings
 from bmo_voice.events import EventSink
 from bmo_voice.jobs import CodexJob, CodexJobManager
+from bmo_voice.publish import PreparedPublish, PublishError, PublishResult
 
 
 class FakeClock:
@@ -27,6 +28,46 @@ class RecordingSink:
 
     def emit(self, state: str, **fields):
         self.events.append({"state": state, **fields})
+
+
+class FakePublisher:
+    def __init__(self):
+        self.prepared: list[str] = []
+        self.published: list[PreparedPublish] = []
+        self.publish_error = ""
+
+    def prepare(self, project: Path, job_id: str) -> PreparedPublish:
+        self.prepared.append(job_id)
+        return PreparedPublish(
+            project=project,
+            job_id=job_id,
+            branch=f"bmo/{job_id}",
+            base_branch="main",
+            base_commit="a" * 40,
+        )
+
+    def collect(self, prepared: PreparedPublish) -> PreparedPublish:
+        return PreparedPublish(
+            project=prepared.project,
+            job_id=prepared.job_id,
+            branch=prepared.branch,
+            base_branch=prepared.base_branch,
+            base_commit=prepared.base_commit,
+            changed_paths=("app.py",),
+            change_digest="digest-app-py",
+        )
+
+    def publish(
+        self, prepared: PreparedPublish, *, title: str, body: str
+    ) -> PublishResult:
+        self.published.append(prepared)
+        if self.publish_error:
+            raise PublishError(self.publish_error)
+        return PublishResult(
+            commit_sha="b" * 40,
+            pr_number=17,
+            pr_url="https://github.com/example/demo/pull/17",
+        )
 
 
 class JobTests(unittest.TestCase):
@@ -88,7 +129,10 @@ class JobTests(unittest.TestCase):
             sink = RecordingSink()
             clock = FakeClock()
             manager = CodexJobManager(
-                self._settings(root), sink, clock=clock
+                self._settings(root),
+                sink,
+                clock=clock,
+                publisher=FakePublisher(),
             )
 
             fake_process = MagicMock()
@@ -113,8 +157,9 @@ class JobTests(unittest.TestCase):
 
             latest = manager.latest()
             self.assertIsNotNone(latest)
-            self.assertEqual(latest.state, "done")
+            self.assertEqual(latest.state, "ready")
             self.assertEqual(latest.result, "改好了")
+            self.assertEqual(latest.changed_files, ["app.py"])
             messages = manager.drain_notifications()
             self.assertTrue(any("已完成" in m for m in messages))
             self.assertTrue(any(e["state"] == "coding" for e in sink.events))
@@ -133,7 +178,10 @@ class JobTests(unittest.TestCase):
             sink = RecordingSink()
             clock = FakeClock()
             manager = CodexJobManager(
-                self._settings(root), sink, clock=clock
+                self._settings(root),
+                sink,
+                clock=clock,
+                publisher=FakePublisher(),
             )
 
             started = threading.Event()
@@ -176,7 +224,10 @@ class JobTests(unittest.TestCase):
             self._build_projects(root)
             sink = RecordingSink()
             manager = CodexJobManager(
-                self._settings(root), sink, clock=FakeClock()
+                self._settings(root),
+                sink,
+                clock=FakeClock(),
+                publisher=FakePublisher(),
             )
 
             class QuickProcess:
@@ -282,7 +333,10 @@ class JobTests(unittest.TestCase):
             sink = RecordingSink()
             clock = FakeClock()
             manager = CodexJobManager(
-                self._settings(root), sink, clock=clock
+                self._settings(root),
+                sink,
+                clock=clock,
+                publisher=FakePublisher(),
             )
 
             fake_process = MagicMock()
@@ -312,7 +366,7 @@ class JobTests(unittest.TestCase):
                 self.assertNotEqual(new_job.job_id, job.job_id)
                 manager.wait(new_job.job_id, timeout=2)
 
-            self.assertEqual(manager.latest().state, "done")
+            self.assertEqual(manager.latest().state, "ready")
 
     def test_unconfirmed_high_risk_job_cannot_be_retried(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -338,6 +392,163 @@ class JobTests(unittest.TestCase):
             job, problem = manager.retry_last()
             self.assertIsNone(job)
             self.assertIn("高风险", problem)
+
+    def _ready_job(self, root: Path, clock: FakeClock):
+        publisher = FakePublisher()
+        manager = CodexJobManager(
+            self._settings(root),
+            RecordingSink(),
+            clock=clock,
+            publisher=publisher,
+        )
+        with manager._lock:
+            manager._jobs.append(
+                CodexJob(
+                    job_id="job-ready",
+                    request="修改 demo 登录页",
+                    project=str(root / "projects" / "demo"),
+                    state="ready",
+                    created_at=clock(),
+                    updated_at=clock(),
+                    result="改好了，测试通过",
+                    request_id="voice-original",
+                    branch="bmo/job-ready",
+                    base_branch="main",
+                    base_commit="a" * 40,
+                    changed_files=["app.py"],
+                    change_digest="digest-app-py",
+                    publish_offer_expires_at=clock() + 120,
+                )
+            )
+            manager._save_locked()
+        return manager, publisher
+
+    def test_publish_does_nothing_before_exact_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build_projects(root)
+            clock = FakeClock()
+            manager, publisher = self._ready_job(root, clock)
+            self.assertEqual(publisher.published, [])
+            candidate = manager.publish_candidate()
+            self.assertEqual(candidate.job_id, "job-ready")
+            self.assertEqual(publisher.published, [])
+
+    def test_confirm_publish_binds_request_and_persists_pr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build_projects(root)
+            clock = FakeClock()
+            manager, publisher = self._ready_job(root, clock)
+            job, message = manager.confirm_publish(
+                "job-ready",
+                request_id="voice-confirm-1",
+            )
+            self.assertIsNotNone(job)
+            self.assertIn("正在", message)
+            manager.wait("job-ready", timeout=2)
+            latest = manager.latest()
+            self.assertEqual(latest.state, "published")
+            self.assertEqual(
+                latest.publish_request_id,
+                "voice-confirm-1",
+            )
+            self.assertEqual(latest.pr_number, 17)
+            self.assertEqual(
+                latest.pr_url,
+                "https://github.com/example/demo/pull/17",
+            )
+            self.assertEqual(len(publisher.published), 1)
+
+    def test_expired_publish_offer_requires_reoffer_and_new_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build_projects(root)
+            clock = FakeClock()
+            manager, publisher = self._ready_job(root, clock)
+            clock.now += 121
+            job, message = manager.confirm_publish(
+                "job-ready",
+                request_id="voice-expired",
+            )
+            self.assertIsNone(job)
+            self.assertIn("超时", message)
+            self.assertEqual(publisher.published, [])
+            prompt = manager.reoffer_publish("job-ready")
+            self.assertIn("确认", prompt)
+            job, _message = manager.confirm_publish(
+                "job-ready",
+                request_id="voice-fresh",
+            )
+            self.assertIsNotNone(job)
+            manager.wait("job-ready", timeout=2)
+            self.assertEqual(manager.latest().state, "published")
+
+    def test_decline_and_publish_failure_preserve_local_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build_projects(root)
+            clock = FakeClock()
+            manager, publisher = self._ready_job(root, clock)
+            reply = manager.decline_publish("job-ready")
+            self.assertIn("保留", reply)
+            declined = manager.latest()
+            self.assertEqual(declined.state, "declined")
+            self.assertEqual(declined.changed_files, ["app.py"])
+            self.assertEqual(declined.branch, "bmo/job-ready")
+
+            manager.reoffer_publish("job-ready")
+            publisher.publish_error = "auth failed"
+            job, _message = manager.confirm_publish(
+                "job-ready",
+                request_id="voice-confirm-2",
+            )
+            self.assertIsNotNone(job)
+            manager.wait("job-ready", timeout=2)
+            failed = manager.latest()
+            self.assertEqual(failed.state, "publish_failed")
+            self.assertEqual(failed.changed_files, ["app.py"])
+            self.assertEqual(failed.branch, "bmo/job-ready")
+            self.assertEqual(failed.publish_offer_expires_at, 0)
+
+    def test_restart_does_not_auto_resume_ambiguous_publish(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._build_projects(root)
+            jobs_file = root / "jobs.json"
+            jobs_file.write_text(
+                json.dumps(
+                    {
+                        "jobs": [
+                            {
+                                "job_id": "job-publishing",
+                                "request": "修改 demo",
+                                "project": str(root / "projects" / "demo"),
+                                "state": "publishing",
+                                "created_at": 1,
+                                "updated_at": 2,
+                                "branch": "bmo/job-publishing",
+                                "base_branch": "main",
+                                "base_commit": "a" * 40,
+                                "changed_files": ["app.py"],
+                                "change_digest": "digest-app-py",
+                            }
+                        ]
+                    }
+                ),
+                encoding="utf-8",
+            )
+            publisher = FakePublisher()
+            manager = CodexJobManager(
+                self._settings(root),
+                RecordingSink(),
+                clock=FakeClock(),
+                publisher=publisher,
+            )
+            latest = manager.latest()
+            self.assertEqual(latest.state, "publish_failed")
+            self.assertIn("不会自动", latest.error)
+            self.assertEqual(publisher.published, [])
 
 
 if __name__ == "__main__":

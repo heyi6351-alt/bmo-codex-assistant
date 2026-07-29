@@ -237,6 +237,12 @@ class ProactiveScheduler:
         today = now.date().isoformat()
         if self.state.get("planned_for_date") == today:
             return
+        # Mark the day as planned before calling the brain: proactive.tick runs
+        # on every idle main-loop iteration (~1/s), so a failing or
+        # unauthenticated Codex must not become a once-per-second retry storm
+        # that blocks the single-threaded loop and starves wake detection.
+        self.state["planned_for_date"] = today
+        self._save_state()
         if self.settings.autoplan_writes:
             write_policy = (
                 "The owner explicitly enabled standing automatic time-block creation. "
@@ -268,9 +274,6 @@ class ProactiveScheduler:
             )
         except Exception:
             LOG.exception("daily planning failed")
-            return
-        self.state["planned_for_date"] = today
-        self._save_state()
 
     def _emit_proactive(self, state: str, text: str) -> None:
         if self.events is not None:

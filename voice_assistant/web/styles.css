@@ -71,7 +71,8 @@ header {
 }
 
 .pill.hidden,
-.job-card.hidden {
+.job-card.hidden,
+.job-row.hidden {
   display: none;
 }
 
@@ -144,6 +145,18 @@ header {
   text-overflow: ellipsis;
 }
 
+#pr-row {
+  align-items: start;
+}
+
+#pr-url {
+  display: -webkit-box;
+  overflow-wrap: anywhere;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .job-label {
   opacity: 0.7;
   letter-spacing: 0.08em;
@@ -196,19 +209,25 @@ body[data-state="interrupted"] .eye {
 
 body[data-state="thinking"] .eye-left,
 body[data-state="tool_call"] .eye-left,
-body[data-state="coding"] .eye-left {
+body[data-state="coding"] .eye-left,
+body[data-state="ready"] .eye-left,
+body[data-state="publishing"] .eye-left {
   transform: translateY(12%);
 }
 
 body[data-state="thinking"] .eye-right,
 body[data-state="tool_call"] .eye-right,
-body[data-state="coding"] .eye-right {
+body[data-state="coding"] .eye-right,
+body[data-state="ready"] .eye-right,
+body[data-state="publishing"] .eye-right {
   animation: think 1.1s ease-in-out infinite alternate;
 }
 
 body[data-state="thinking"] .mouth,
 body[data-state="tool_call"] .mouth,
-body[data-state="coding"] .mouth {
+body[data-state="coding"] .mouth,
+body[data-state="ready"] .mouth,
+body[data-state="publishing"] .mouth {
   width: clamp(28px, 9vw, 60px);
   border-radius: 50%;
 }
@@ -241,13 +260,23 @@ body[data-state="done"] .mouth {
   border-radius: 0 0 50% 50%;
 }
 
+body[data-state="published"] .eye {
+  background-color: var(--ok);
+}
+
+body[data-state="published"] .mouth {
+  border-color: var(--ok);
+}
+
 body[data-state="failed"] .mouth,
+body[data-state="publish_failed"] .mouth,
 body[data-state="error"] .mouth,
 body[data-state="offline"] .mouth {
   transform: rotate(180deg) translateY(-65%);
 }
 
 body[data-state="failed"] .eye,
+body[data-state="publish_failed"] .eye,
 body[data-state="error"] .eye,
 body[data-state="offline"] .eye {
   height: clamp(12px, 4vw, 24px);
@@ -255,6 +284,7 @@ body[data-state="offline"] .eye {
 }
 
 body[data-state="failed"] .eye-right,
+body[data-state="publish_failed"] .eye-right,
 body[data-state="error"] .eye-right,
 body[data-state="offline"] .eye-right {
   transform: rotate(-12deg);

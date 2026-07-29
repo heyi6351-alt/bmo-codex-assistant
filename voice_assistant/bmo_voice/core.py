@@ -58,18 +58,33 @@ class ConversationController:
         self.barge_in_energy_threshold = barge_in_energy_threshold
         self.barge_in_chunks = barge_in_chunks
 
+    def _safe_speak(self, text: str) -> None:
+        """Speak without letting an audio-output failure kill the service.
+
+        A dead or misconfigured speaker (common before the enclosure test) must
+        degrade a single turn, not crash the whole loop into a restart storm.
+        """
+
+        try:
+            self.speaker.speak(text)
+        except Exception:
+            LOG.exception("speech playback failed")
+
     def _speak_reply(self, text: str, microphone: Microphone) -> bool:
         interruptible = getattr(self.speaker, "speak_interruptible", None)
-        if self.barge_in_enabled and callable(interruptible):
-            return bool(
-                interruptible(
-                    text,
-                    microphone,
-                    energy_threshold=self.barge_in_energy_threshold,
-                    chunks_required=self.barge_in_chunks,
+        try:
+            if self.barge_in_enabled and callable(interruptible):
+                return bool(
+                    interruptible(
+                        text,
+                        microphone,
+                        energy_threshold=self.barge_in_energy_threshold,
+                        chunks_required=self.barge_in_chunks,
+                    )
                 )
-            )
-        self.speaker.speak(text)
+            self.speaker.speak(text)
+        except Exception:
+            LOG.exception("reply playback failed")
         return False
 
     def poll_and_run(self, microphone: Microphone, wake_timeout: float) -> int:
@@ -79,20 +94,27 @@ class ConversationController:
         if not self.wake_detector.wait_for_wake(microphone, wake_timeout):
             return 0
         self.events.emit("wake")
-        self.speaker.speak("我在")
+        self._safe_speak("我在")
         microphone.clear()
 
         completed = 0
         for turn in range(self.max_turns):
             self.events.emit("listening", turn=turn + 1)
-            transcript = self.transcriber.transcribe(
-                microphone, followup=turn > 0
-            ).strip()
+            try:
+                transcript = self.transcriber.transcribe(
+                    microphone, followup=turn > 0
+                ).strip()
+            except Exception:
+                LOG.exception("transcription failed")
+                self.events.emit("error", error="transcription failed")
+                self._safe_speak("抱歉，我刚才没有听清")
+                microphone.clear()
+                break
             if not transcript:
                 break
             normalized = transcript.casefold()
             if any(phrase in normalized for phrase in STOP_PHRASES):
-                self.speaker.speak("好的，需要我时再叫我")
+                self._safe_speak("好的，需要我时再叫我")
                 microphone.clear()
                 break
 
@@ -104,7 +126,7 @@ class ConversationController:
                 # Keep internal exception details (paths, env values) out of
                 # the LAN-served state file; logs carry the full traceback.
                 self.events.emit("error", error="assistant turn failed")
-                self.speaker.speak("抱歉，我刚才没有处理成功")
+                self._safe_speak("抱歉，我刚才没有处理成功")
                 microphone.clear()
                 break
 

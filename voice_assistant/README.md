@@ -29,6 +29,31 @@ payment, …) — whether action or coding — pause for an explicit spoken
 pending confirmation expires after `BMO_CONFIRMATION_TIMEOUT_SECONDS`
 (default 120 s) instead of staying armed forever.
 
+## Brain provider (sparing Codex quota)
+
+`BMO_BRAIN` selects the reasoning brain for spoken turns:
+
+- `codex` (default) — Codex CLI handles every turn.
+- `openai` — an OpenAI-compatible chat endpoint answers ordinary **questions**
+  and drafts **proactive briefings**, so casual Q&A does not consume Codex
+  quota. **Coding jobs and Lark actions still use Codex** (they need agentic
+  tool execution a plain text model cannot do).
+
+Set the endpoint (key comes from the environment, never source):
+
+```bash
+BMO_BRAIN=openai
+BMO_OPENAI_BASE_URL=https://your-endpoint/v1   # has /chat/completions under it
+BMO_OPENAI_MODEL=your-model
+BMO_OPENAI_API_KEY=...                          # in /etc/bmo/voice.env, not code
+```
+
+If your Codex quota itself is exhausted, also point Codex at the same
+OpenAI-compatible endpoint so coding/actions stop using that quota: define a
+model provider in `~/.codex/config.toml` (base_url + env key) as the `bmo` user
+and set `BMO_CODEX_PROFILE` / `BMO_CODEX_MODEL`. Codex needs a model with
+tool/function calling for the coding path.
+
 ## Background coding jobs
 
 Coding requests never block the conversation. `CodexJobManager` accepts one job
@@ -45,6 +70,26 @@ thread with `start_new_session=True`:
   `BMO_CODEX_PROJECT_ROOT`; symlinks escaping the root are rejected.
 - Completion, failure, and cancellation are spoken by the main loop between
   wake-poll windows, so voice stays responsive while a job runs.
+
+## Confirmation-gated GitHub delivery
+
+Every coding job starts from a clean Git repository and creates a local
+`bmo/<job-id>` branch before Codex edits anything. Completion does **not**
+commit, push, or contact GitHub. BMO records the exact changed paths, speaks the
+summary, and waits for a fresh spoken “确认发布” bound to that same job.
+
+After confirmation, BMO re-checks the branch, base commit, changed-path set,
+GitHub CLI login, and confirmation expiry. It then stages only the recorded
+paths, creates one commit, pushes the explicit BMO branch ref, and creates or
+reuses an open Pull Request. It never invokes merge, never pushes `main` or
+`master`, and never auto-resumes a half-finished publication after reboot.
+
+- Say “不发布” to keep the branch and files locally without any remote write.
+- Say “重新发布” after a failed/declined attempt to obtain a new confirmation
+  window; this does not itself publish.
+- The HDMI job card shows the resulting PR URL. Open that URL from another
+  computer to inspect the diff, test summary, and continue the normal team
+  review process.
 
 With `BMO_BARGE_IN_ENABLED=1`, reply playback remains interruptible. The service
 keeps reading the AEC-filtered ReSpeaker Lite stream, stops TTS after consecutive
@@ -87,6 +132,7 @@ System prerequisites:
 
 - Python 3.11+
 - Codex CLI, logged in as the dedicated `bmo` Linux user
+- Git and GitHub CLI (`gh`), with `gh auth login` completed as `bmo`
 - lark-cli, authenticated as that same user
 - whisper.cpp `whisper-cli` plus a multilingual model
 - PortAudio and `espeak-ng` on Linux
@@ -97,22 +143,35 @@ For the Orange Pi target, start with:
 ```bash
 sudo ./deploy/install-orangepi-zero3.sh
 sudo ./deploy/install-voice-models.sh
-sudo ./deploy/check-orangepi-zero3-hardware.sh
 ```
 
 The installer creates `/opt/bmo/voice_assistant/.venv`, copies the safe default
 configuration to `/etc/bmo/voice.env`, and installs the three services. After
-that, switch to the dedicated account for authentication:
+that, switch to the dedicated account for authentication and pre-flight, then
+start the services and run the hardware self-check last:
 
 ```bash
 sudo -iu bmo
 codex login --device-auth
+gh auth login
+gh auth status
 lark-cli auth login --domain calendar,task,im
 
 cd /opt/bmo/voice_assistant
+set -a
+. /etc/bmo/voice.env
+set +a
 .venv/bin/python -m bmo_voice --check
-.venv/bin/python -m bmo_voice --once --verbose
+exit
+
+sudo systemctl enable --now bmo-display bmo-kiosk bmo-voice
+sudo ./deploy/check-orangepi-zero3-hardware.sh
 ```
+
+`--check` needs the runtime environment, so source `/etc/bmo/voice.env` first
+(otherwise it exits with `BMO_VOSK_MODEL must point to ...`). The hardware
+self-check is run last: it treats board/audio/display items as pass/fail and
+Codex/GitHub/Lark authorization as informational notes.
 
 Do not add `--ignore-user-config` to the Codex command: the normal Codex
 configuration is how this service sees the installed Lark skills. Use a dedicated
@@ -169,17 +228,19 @@ The service writes:
 
 The offline face page (`web/`) fits the 800×480 HDMI panel without scrolling:
 a header with the intent pill and connection dot, the animated face, a job card
-(id / project / state) shown while a coding job runs, a two-line subtitle, and
-the footer status/clock. Subtitles are clamped to two lines and long job fields
-are ellipsized, so nothing is cropped mid-glyph or scrolls.
+(id / project / state / PR URL) shown during coding and publication, a two-line
+subtitle, and the footer status/clock. Subtitles are clamped to two lines and
+long job fields are ellipsized, so nothing is cropped mid-glyph or scrolls.
 
 ## Status
 
-All software above is implemented and covered by 60 unit tests (intent routing,
-confirmations, job lifecycle, cancellation races, restart recovery, proactive
-suppression, display API). Still pending real-hardware acceptance on the Orange
-Pi Zero 3 + ReSpeaker Lite + 800×480 panel: wake/barge-in thresholds, actual
-Codex job runs end to end, TTS audibility, and on-panel visual checks.
+All software above is implemented and covered by unit tests (intent routing,
+confirmations, job lifecycle, cancellation races, restart recovery, safe PR
+publication, proactive suppression, display API). Publication tests use an
+injected command runner and never access a real remote. Still pending
+real-hardware acceptance on the Orange Pi Zero 3 + ReSpeaker Lite + 800×480
+panel: wake/barge-in thresholds, actual Codex and GitHub runs end to end, TTS
+audibility, and on-panel visual checks.
 
 ## Test
 

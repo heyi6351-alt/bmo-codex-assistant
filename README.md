@@ -19,6 +19,8 @@
 - 普通问题交给 GPT/Codex，只读沙箱回答，并通过路由策略禁止工具调用；
 - 明确的 coding 指令提交为**后台 Job**：立即返回任务号，期间仍可语音对话，
   可随时问“做到哪了”、说“取消当前任务”或“重试”；
+- coding 完成后只在本地保留改动并播报摘要；只有听到新的「确认发布」才会
+  提交到 `bmo/<job-id>` 分支并创建 Pull Request，绝不自动合并到主分支；
 - coding 项目被限制在白名单目录内，符号链接无法逃逸；
 - 删除、发布、发消息、付款等高风险指令先说「确认」才执行，否定优先，
   超过 120 秒未确认自动作废；
@@ -42,7 +44,8 @@
    │
    ├── 普通问题 ──→ GPT / Codex 只读回答 ──→ 语音播报
    │
-   ├── Coding 指令 → Codex 项目工作区 ────→ 修改 + 测试 + 汇报
+   ├── Coding 指令 → Codex 项目工作区 ────→ 修改 + 测试
+   │                                      └→ 语音确认 → BMO 分支 → GitHub PR
    │
    └── 功能指令 ──→ 飞书日历 / 任务 / 消息 → 结果或确认
 ```
@@ -91,10 +94,9 @@ cd bmo-codex-assistant/voice_assistant
 
 sudo ./deploy/install-orangepi-zero3.sh
 sudo ./deploy/install-voice-models.sh
-sudo ./deploy/check-orangepi-zero3-hardware.sh
 ```
 
-### 3. 授权 Codex 与飞书
+### 3. 授权 Codex、GitHub 与飞书
 
 账号授权必须由 BMO 所有者完成，不要把 token 或密钥交给硬件开发。
 
@@ -104,6 +106,9 @@ sudo -iu bmo
 curl -fsSL https://chatgpt.com/codex/install.sh \
   | CODEX_NON_INTERACTIVE=1 sh
 codex login --device-auth
+
+gh auth login
+gh auth status
 
 npm config set prefix "$HOME/.npm-global"
 npm install -g @larksuite/cli
@@ -126,7 +131,12 @@ set +a
 exit
 
 sudo systemctl enable --now bmo-display bmo-kiosk bmo-voice
+sudo ./deploy/check-orangepi-zero3-hardware.sh
 ```
+
+硬件自检要在服务启动后再运行；它把板子相关项作为通过/失败,把
+Codex/GitHub/飞书授权作为提示项(NOTE),所以在所有者完成授权前也能
+先通过硬件验收。
 
 查看运行日志：
 
@@ -152,6 +162,7 @@ journalctl -u bmo-display -u bmo-kiosk -u bmo-voice -f
 | 中英唤醒、转写和意图路由 | 已实现并有自动化测试 |
 | Codex 连续会话与 coding 路由 | 已实现 |
 | 后台 coding Job（进度、取消、重试、重启恢复） | 已实现并有自动化测试，待真机跑通 Codex |
+| 确认后创建独立 Git 分支与 GitHub PR（不自动合并） | 已实现并有无真实远端的自动化测试，待板端验收 |
 | 高风险操作语音确认（含 120 秒超时） | 已实现并有自动化测试 |
 | 飞书日程、待办、会前提醒和日程草案 | 已实现 |
 | 回到工位后的主动播报 | 已实现文件式 presence 接口 |
@@ -160,9 +171,10 @@ journalctl -u bmo-display -u bmo-kiosk -u bmo-voice -f
 | 800×480 HDMI 表情页面（字幕、Job 卡片、连接指示） | 已实现响应式布局，等待真屏验收 |
 | Orange Pi Zero 3 + ReSpeaker + 小屏整机 | 等待真实硬件验收 |
 
-以上软件功能共 60 个自动化测试全部通过。仍需 ReSpeaker/Orange Pi 真机
+以上软件功能均有自动化测试。仍需 ReSpeaker/Orange Pi 真机
 验证的项目：唤醒与插话阈值、whisper.cpp 实际转写质量、TTS 外放效果、
-Codex Job 端到端执行与取消、小屏实际显示效果、systemd 三服务长期运行。
+Codex Job 端到端执行与取消、GitHub PR 实际创建、小屏实际显示效果、
+systemd 三服务长期运行。
 
 目前的自动规划默认只生成草案。只有显式设置
 `BMO_AUTOPLAN_WRITES=1` 后，才允许创建无参会人的个人专注时间块；不会修改

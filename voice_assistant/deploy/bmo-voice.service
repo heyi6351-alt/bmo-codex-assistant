@@ -12,6 +12,11 @@ EnvironmentFile=/etc/bmo/voice.env
 Environment=HOME=/home/bmo
 Environment=PATH=/home/bmo/.local/bin:/home/bmo/.npm-global/bin:/usr/local/bin:/usr/bin:/bin
 Environment=PYTHONUNBUFFERED=1
+# The ReSpeaker is a hot-plugged USB sound card; sound.target is reached long
+# before udev enumerates it. Wait (bounded) for the capture device so the first
+# boot does not crash-loop opening a mic that does not exist yet. Invoked via
+# /bin/sh so the unit line stays free of systemd '$' expansion.
+ExecStartPre=/bin/sh /opt/bmo/voice_assistant/deploy/wait-for-audio.sh
 ExecStart=/opt/bmo/voice_assistant/.venv/bin/python -m bmo_voice
 Restart=always
 RestartSec=3
@@ -22,7 +27,7 @@ ProtectSystem=strict
 ProtectHome=read-only
 # Codex config and lark-cli auth are read from /home/bmo. Only BMO state,
 # project workspaces, and the CLI credential/config directories are writable.
-ReadWritePaths=/var/lib/bmo /run/bmo -/home/bmo/.codex -/home/bmo/.lark-cli -/home/bmo/.config/lark
+ReadWritePaths=/var/lib/bmo /run/bmo -/home/bmo/.codex -/home/bmo/.lark-cli -/home/bmo/.config/lark -/home/bmo/.config/gh
 SupplementaryGroups=audio
 
 [Install]

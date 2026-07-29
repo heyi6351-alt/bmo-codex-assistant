@@ -36,6 +36,9 @@ class FakeJobManager:
         self.retries: list[()] = []
         self.notifications: list[str] = []
         self.submission_metadata: list[dict] = []
+        self.publish_confirms: list[tuple[str, str]] = []
+        self.publish_declines: list[str] = []
+        self.publish_reoffers: list[str] = []
         self._latest: dict | None = None
 
     def submit(
@@ -82,6 +85,31 @@ class FakeJobManager:
         out = self.notifications[:]
         self.notifications.clear()
         return out
+
+    def publish_candidate(self):
+        latest = self.latest()
+        if latest and latest.state in {
+            "ready",
+            "publish_failed",
+            "declined",
+        }:
+            return latest
+        return None
+
+    def confirm_publish(self, job_id: str, *, request_id: str):
+        self.publish_confirms.append((job_id, request_id))
+        latest = self.latest()
+        if latest is not None:
+            latest.state = "publishing"
+        return latest, f"正在为 {job_id} 创建 GitHub PR。"
+
+    def decline_publish(self, job_id: str) -> str:
+        self.publish_declines.append(job_id)
+        return "好的，不发布。改动保留在本地分支。"
+
+    def reoffer_publish(self, job_id: str | None = None) -> str:
+        self.publish_reoffers.append(job_id or "")
+        return "请说确认发布或不发布。"
 
 
 class FakeScheduler:
@@ -134,6 +162,42 @@ class BrainTests(unittest.TestCase):
         states = [e["state"] for e in self.sink.events]
         self.assertNotIn("tool_call", states)
         self.assertNotIn("coding", states)
+
+    def _brain_with_question_brain(self, question):
+        self.sink = RecordingSink()
+        self.codex = FakeCodexBrain()
+        self.jobs = FakeJobManager()
+        self.scheduler = FakeScheduler()
+        with tempfile.TemporaryDirectory() as tmp:
+            return AssistantBrain(
+                self._settings(Path(tmp)),
+                self.sink,
+                self.codex,
+                self.jobs,
+                self.scheduler,
+                question_brain=question,
+            )
+
+    def test_question_uses_question_brain_when_provided(self):
+        question = FakeCodexBrain()
+        brain = self._brain_with_question_brain(question)
+        reply = brain.ask("量子纠缠是什么")
+        self.assertEqual(reply, "Codex reply")
+        # Question offloaded to the cheap text brain, not Codex.
+        self.assertEqual(len(question.asks), 1)
+        self.assertEqual(len(self.codex.asks), 0)
+
+    def test_action_still_uses_codex_with_separate_question_brain(self):
+        question = FakeCodexBrain()
+        brain = self._brain_with_question_brain(question)
+        reply = brain.ask("查看我今天的日历")
+        self.assertEqual(reply, "Codex reply")
+        # Actions need Codex tool execution; the text brain must not see them.
+        self.assertEqual(len(self.codex.asks), 1)
+        self.assertEqual(len(question.asks), 0)
+        self.assertTrue(
+            any(e["state"] == "tool_call" for e in self.sink.events)
+        )
 
     def test_action_with_high_risk_waits_for_confirmation(self):
         brain = self._brain()
@@ -292,6 +356,56 @@ class BrainTests(unittest.TestCase):
         }
         brain.ask("重试")
         self.assertEqual(self.jobs.submissions[-1][1], "old")
+
+    def test_ready_job_requires_explicit_publish_confirmation(self):
+        brain = self._brain()
+        self.jobs._latest = {
+            "job_id": "job-ready",
+            "request": "修改 demo",
+            "project": "/tmp/projects/demo",
+            "state": "ready",
+            "created_at": 0,
+            "updated_at": 0,
+            "changed_files": ["app.py"],
+        }
+        reply = brain.ask("确认发布")
+        self.assertIn("正在", reply)
+        self.assertEqual(len(self.jobs.publish_confirms), 1)
+        job_id, request_id = self.jobs.publish_confirms[0]
+        self.assertEqual(job_id, "job-ready")
+        self.assertTrue(request_id.startswith("voice-"))
+
+    def test_publish_negative_wins_and_never_confirms(self):
+        brain = self._brain()
+        self.jobs._latest = {
+            "job_id": "job-ready",
+            "request": "修改 demo",
+            "project": "/tmp/projects/demo",
+            "state": "ready",
+            "created_at": 0,
+            "updated_at": 0,
+            "changed_files": ["app.py"],
+        }
+        reply = brain.ask("好的，那先不发布")
+        self.assertIn("不发布", reply)
+        self.assertEqual(self.jobs.publish_declines, ["job-ready"])
+        self.assertEqual(self.jobs.publish_confirms, [])
+
+    def test_publish_failure_retry_rearms_instead_of_publishing(self):
+        brain = self._brain()
+        self.jobs._latest = {
+            "job_id": "job-failed",
+            "request": "修改 demo",
+            "project": "/tmp/projects/demo",
+            "state": "publish_failed",
+            "created_at": 0,
+            "updated_at": 0,
+            "changed_files": ["app.py"],
+        }
+        reply = brain.ask("重新发布")
+        self.assertIn("确认", reply)
+        self.assertEqual(self.jobs.publish_reoffers, ["job-failed"])
+        self.assertEqual(self.jobs.publish_confirms, [])
 
 
 class RecordingSink:

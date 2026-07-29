@@ -17,6 +17,11 @@ from typing import Any, Protocol
 
 from .config import Settings
 from .intent import route_request
+from .publish import (
+    GitHubPublisher,
+    PreparedPublish,
+    PublishError,
+)
 
 LOG = logging.getLogger(__name__)
 
@@ -37,6 +42,17 @@ class CodexJob:
     error: str = ""
     request_id: str = ""
     confirmed: bool = False
+    branch: str = ""
+    base_branch: str = ""
+    base_commit: str = ""
+    changed_files: list[str] | None = None
+    change_digest: str = ""
+    commit_sha: str = ""
+    pr_number: int | None = None
+    pr_url: str = ""
+    publish_request_id: str = ""
+    publish_confirmed_at: float = 0
+    publish_offer_expires_at: float = 0
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> "CodexJob":
@@ -51,6 +67,29 @@ class CodexJob:
             error=str(payload.get("error", "")),
             request_id=str(payload.get("request_id", "")),
             confirmed=bool(payload.get("confirmed", False)),
+            branch=str(payload.get("branch", "")),
+            base_branch=str(payload.get("base_branch", "")),
+            base_commit=str(payload.get("base_commit", "")),
+            changed_files=[
+                str(path)
+                for path in (payload.get("changed_files") or [])
+                if isinstance(path, str)
+            ],
+            change_digest=str(payload.get("change_digest", "")),
+            commit_sha=str(payload.get("commit_sha", "")),
+            pr_number=(
+                int(payload["pr_number"])
+                if payload.get("pr_number") is not None
+                else None
+            ),
+            pr_url=str(payload.get("pr_url", "")),
+            publish_request_id=str(payload.get("publish_request_id", "")),
+            publish_confirmed_at=float(
+                payload.get("publish_confirmed_at", 0)
+            ),
+            publish_offer_expires_at=float(
+                payload.get("publish_offer_expires_at", 0)
+            ),
         )
 
     def public(self) -> dict[str, Any]:
@@ -63,6 +102,12 @@ class CodexJob:
             "error": self.error[:500],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "branch": self.branch,
+            "base_branch": self.base_branch,
+            "changed_files": list(self.changed_files or []),
+            "commit_sha": self.commit_sha,
+            "pr_number": self.pr_number,
+            "pr_url": self.pr_url,
         }
 
 
@@ -87,8 +132,23 @@ def _parse_codex_reply(stdout: str) -> str:
 class CodexJobManager:
     """Run at most one Codex coding process without blocking voice turns."""
 
-    ACTIVE_STATES = {"queued", "inspecting", "coding", "testing", "cancelling"}
-    TERMINAL_STATES = {"done", "failed", "cancelled", "interrupted"}
+    ACTIVE_STATES = {
+        "queued",
+        "inspecting",
+        "coding",
+        "testing",
+        "cancelling",
+        "publishing",
+    }
+    TERMINAL_STATES = {
+        "done",
+        "failed",
+        "cancelled",
+        "interrupted",
+        "published",
+        "publish_failed",
+        "declined",
+    }
 
     def __init__(
         self,
@@ -96,10 +156,12 @@ class CodexJobManager:
         events: JobEventSink,
         *,
         clock=time.time,
+        publisher: GitHubPublisher | None = None,
     ):
         self.settings = settings
         self.events = events
         self.clock = clock
+        self.publisher = publisher or GitHubPublisher(settings)
         self._lock = threading.RLock()
         self._jobs: list[CodexJob] = []
         self._processes: dict[str, subprocess.Popen[str]] = {}
@@ -125,7 +187,15 @@ class CodexJobManager:
                 job = CodexJob.from_dict(item)
             except (KeyError, TypeError, ValueError):
                 continue
-            if job.state in self.ACTIVE_STATES:
+            if job.state == "publishing":
+                job.state = "publish_failed"
+                job.error = (
+                    "BMO 重启前发布状态不明；不会自动续推，"
+                    "本地分支已保留，请重新确认后发布"
+                )
+                job.publish_offer_expires_at = 0
+                job.updated_at = self.clock()
+            elif job.state in self.ACTIVE_STATES:
                 job.state = "interrupted"
                 job.error = "BMO 重启前该任务尚未完成"
                 job.updated_at = self.clock()
@@ -287,6 +357,7 @@ class CodexJobManager:
         *,
         result: str = "",
         error: str = "",
+        **fields: Any,
     ) -> CodexJob | None:
         with self._lock:
             job = self._job_locked(job_id)
@@ -302,6 +373,23 @@ class CodexJobManager:
                 job.result = result
             if error:
                 job.error = error
+            allowed = {
+                "branch",
+                "base_branch",
+                "base_commit",
+                "changed_files",
+                "change_digest",
+                "commit_sha",
+                "pr_number",
+                "pr_url",
+                "publish_request_id",
+                "publish_confirmed_at",
+                "publish_offer_expires_at",
+            }
+            for name, value in fields.items():
+                if name not in allowed:
+                    raise ValueError(f"unsupported job field: {name}")
+                setattr(job, name, value)
             self._save_locked()
             snapshot = CodexJob.from_dict(asdict(job))
         return snapshot
@@ -349,6 +437,16 @@ class CodexJobManager:
         )
         process: subprocess.Popen[str] | None = None
         try:
+            prepared = self.publisher.prepare(Path(job.project), job.job_id)
+            job = self._update(
+                job_id,
+                "inspecting",
+                branch=prepared.branch,
+                base_branch=prepared.base_branch,
+                base_commit=prepared.base_commit,
+            )
+            if job is None:
+                return
             process = subprocess.Popen(
                 self._command(Path(job.project)),
                 stdin=subprocess.PIPE,
@@ -405,9 +503,42 @@ class CodexJobManager:
                     message = f"{job_id} 没有返回结果。"
                     event_state = "failed"
                 else:
-                    finished = self._update(job_id, "done", result=reply)
-                    message = f"{job_id} 已完成。{reply[:1000]}"
-                    event_state = "done"
+                    prepared = self.publisher.collect(
+                        PreparedPublish(
+                            project=Path(job.project),
+                            job_id=job.job_id,
+                            branch=job.branch,
+                            base_branch=job.base_branch,
+                            base_commit=job.base_commit,
+                        )
+                    )
+                    changed_files = list(prepared.changed_paths)
+                    if changed_files:
+                        finished = self._update(
+                            job_id,
+                            "ready",
+                            result=reply,
+                            changed_files=changed_files,
+                            change_digest=prepared.change_digest,
+                            publish_offer_expires_at=(
+                                self.clock()
+                                + self.settings.confirmation_timeout_seconds
+                            ),
+                        )
+                        message = (
+                            f"{job_id} 已完成，改动 {len(changed_files)} 个文件。"
+                            "如需创建 GitHub PR，请说「确认发布」；"
+                            "说「不发布」会把改动保留在本地分支。"
+                        )
+                        event_state = "ready"
+                    else:
+                        finished = self._update(job_id, "done", result=reply)
+                        message = f"{job_id} 已完成，但没有代码改动。{reply[:800]}"
+                        event_state = "done"
+        except PublishError as exc:
+            finished = self._update(job_id, "failed", error=str(exc))
+            message = f"{job_id} 未启动 coding：{exc}"
+            event_state = "failed"
         except FileNotFoundError:
             finished = self._update(
                 job_id,
@@ -439,6 +570,197 @@ class CodexJobManager:
             )
         self._notifications.put(message)
 
+    def publish_candidate(self) -> CodexJob | None:
+        with self._lock:
+            job = next(
+                (
+                    item
+                    for item in reversed(self._jobs)
+                    if item.state in {"ready", "publish_failed", "declined"}
+                    and item.changed_files
+                ),
+                None,
+            )
+            return CodexJob.from_dict(asdict(job)) if job is not None else None
+
+    def reoffer_publish(self, job_id: str | None = None) -> str:
+        with self._lock:
+            job = (
+                self._job_locked(job_id)
+                if job_id
+                else next(
+                    (
+                        item
+                        for item in reversed(self._jobs)
+                        if item.state
+                        in {"ready", "publish_failed", "declined"}
+                        and item.changed_files
+                    ),
+                    None,
+                )
+            )
+            if job is None:
+                return "目前没有可创建 PR 的 coding 改动。"
+            job.state = "ready"
+            job.publish_offer_expires_at = (
+                self.clock() + self.settings.confirmation_timeout_seconds
+            )
+            job.publish_request_id = ""
+            job.publish_confirmed_at = 0
+            job.updated_at = self.clock()
+            self._save_locked()
+            snapshot = CodexJob.from_dict(asdict(job))
+        self.events.emit(
+            "ready",
+            intent="coding",
+            job=snapshot.public(),
+            subtitle=f"{job.job_id}：等待确认创建 PR",
+        )
+        return (
+            f"请确认：为 {job.job_id} 创建 GitHub PR 吗？"
+            "请说「确认发布」或「不发布」。"
+        )
+
+    def decline_publish(self, job_id: str) -> str:
+        with self._lock:
+            job = self._job_locked(job_id)
+            if job is None or job.state not in {
+                "ready",
+                "publish_failed",
+            }:
+                return "这个任务当前没有等待发布。"
+            job.state = "declined"
+            job.publish_offer_expires_at = 0
+            job.publish_request_id = ""
+            job.publish_confirmed_at = 0
+            job.updated_at = self.clock()
+            self._save_locked()
+            snapshot = CodexJob.from_dict(asdict(job))
+        self.events.emit(
+            "declined",
+            intent="coding",
+            job=snapshot.public(),
+            subtitle="未发布；本地分支和改动已保留",
+        )
+        return f"好的，不发布。改动保留在本地分支 {job.branch}。"
+
+    def confirm_publish(
+        self,
+        job_id: str,
+        *,
+        request_id: str,
+    ) -> tuple[CodexJob | None, str]:
+        if not request_id:
+            return None, "发布确认缺少请求编号，已停止。"
+        with self._lock:
+            job = self._job_locked(job_id)
+            if job is None or job.state != "ready":
+                return None, "这个任务当前没有等待发布。"
+            if self.clock() > job.publish_offer_expires_at:
+                job.publish_offer_expires_at = 0
+                self._save_locked()
+                return (
+                    None,
+                    "发布确认已超时。请先说「重新发布」，然后再次确认。",
+                )
+            job.state = "publishing"
+            job.publish_request_id = request_id
+            job.publish_confirmed_at = self.clock()
+            job.publish_offer_expires_at = 0
+            job.updated_at = self.clock()
+            self._save_locked()
+            snapshot = CodexJob.from_dict(asdict(job))
+            thread = threading.Thread(
+                target=self._publish_run,
+                args=(job.job_id, request_id),
+                name=f"bmo-publish-{job.job_id}",
+                daemon=True,
+            )
+            self._threads[job.job_id] = thread
+            thread.start()
+        self.events.emit(
+            "publishing",
+            intent="coding",
+            job=snapshot.public(),
+            subtitle=f"{job.job_id}：正在创建 GitHub PR",
+        )
+        return snapshot, f"正在为 {job.job_id} 创建 GitHub PR。"
+
+    def _publish_run(self, job_id: str, request_id: str) -> None:
+        with self._lock:
+            current = self._job_locked(job_id)
+            if (
+                current is None
+                or current.state != "publishing"
+                or current.publish_request_id != request_id
+            ):
+                self._threads.pop(job_id, None)
+                return
+            job = CodexJob.from_dict(asdict(current))
+        prepared = PreparedPublish(
+            project=Path(job.project),
+            job_id=job.job_id,
+            branch=job.branch,
+            base_branch=job.base_branch,
+            base_commit=job.base_commit,
+            changed_paths=tuple(job.changed_files or []),
+            change_digest=job.change_digest,
+        )
+        try:
+            result = self.publisher.publish(
+                prepared,
+                title=job.request,
+                body=(
+                    "Created by BMO after explicit spoken confirmation.\n\n"
+                    f"Job: `{job.job_id}`\n\n"
+                    f"Result: {job.result[:2000]}"
+                ),
+            )
+        except PublishError as exc:
+            with self._lock:
+                current = self._job_locked(job_id)
+                if current is not None:
+                    current.state = "publish_failed"
+                    current.error = str(exc)
+                    current.publish_offer_expires_at = 0
+                    current.updated_at = self.clock()
+                    self._save_locked()
+                    finished = CodexJob.from_dict(asdict(current))
+                else:
+                    finished = None
+            message = (
+                f"{job_id} 发布失败，本地分支和改动已保留。"
+                "如需重试，请说「重新发布」。"
+            )
+            state = "publish_failed"
+        else:
+            with self._lock:
+                current = self._job_locked(job_id)
+                if current is not None:
+                    current.state = "published"
+                    current.commit_sha = result.commit_sha
+                    current.pr_number = result.pr_number
+                    current.pr_url = result.pr_url
+                    current.error = ""
+                    current.updated_at = self.clock()
+                    self._save_locked()
+                    finished = CodexJob.from_dict(asdict(current))
+                else:
+                    finished = None
+            message = f"{job_id} 的 PR 已创建：{result.pr_url}"
+            state = "published"
+        finally:
+            with self._lock:
+                self._threads.pop(job_id, None)
+        if finished is not None:
+            self.events.emit(
+                state,
+                intent="coding",
+                job=finished.public(),
+                subtitle=message[:300],
+            )
+        self._notifications.put(message)
+
     def latest(self) -> CodexJob | None:
         with self._lock:
             if not self._jobs:
@@ -459,10 +781,15 @@ class CodexJobManager:
             "interrupted": "因 BMO 重启而中断",
             "done": "已完成",
             "failed": "执行失败",
+            "ready": "改动已就绪，等待确认创建 PR",
+            "publishing": "正在创建 GitHub PR",
+            "published": "PR 已创建",
+            "publish_failed": "PR 发布失败，改动保留在本地",
+            "declined": "未发布，改动保留在本地",
         }
-        if job.state == "done":
+        if job.state in {"done", "ready", "published", "declined"}:
             detail = job.result
-        elif job.state == "failed":
+        elif job.state in {"failed", "publish_failed"}:
             detail = "错误详情已保存在本机任务记录中。"
         else:
             detail = ""
@@ -481,6 +808,8 @@ class CodexJobManager:
             )
             if job is None or job.state not in self.ACTIVE_STATES:
                 return "目前没有可以取消的 coding 任务。"
+            if job.state == "publishing":
+                return "GitHub 发布正在进行，不能安全取消。"
             if job.state == "cancelling":
                 return f"{job.job_id} 正在取消中。"
             job.state = "cancelling"
@@ -495,6 +824,8 @@ class CodexJobManager:
         job = self.latest()
         if job is None:
             return None, "没有可以重新执行的 coding 任务。"
+        if job.state in {"publish_failed", "declined", "ready"}:
+            return None, "代码改动已存在；如需创建 PR，请说「重新发布」。"
         if job.state not in {"failed", "cancelled", "interrupted"}:
             return None, f"{job.job_id} 当前不需要重新执行。"
         routed = route_request(job.request)

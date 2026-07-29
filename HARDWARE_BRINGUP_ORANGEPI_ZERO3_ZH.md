@@ -160,6 +160,13 @@ sudo ./deploy/install-voice-models.sh
 - 安装音频、Python、Chromium、Xorg 和 800×480 显示依赖；
 - 把运行文件安装到 `/opt/bmo/voice_assistant`；
 - 创建 Python 虚拟环境；
+- 安装 `/etc/tmpfiles.d/bmo.conf`，保证每次开机自动重建运行目录
+  `/run/bmo`（`/run` 是 tmpfs，重启会清空；不重建会导致 `bmo-voice`
+  开机起不来）；
+- 写入 `/etc/X11/Xwrapper.config`，让 server 镜像上无显示管理器时
+  kiosk 仍能以 `bmo` 身份启动 Xorg；
+- 把 Codex 的可写工作区放在 `/var/lib/bmo/codex_workspace`（服务以
+  `ProtectSystem=strict` 运行，`/opt` 是只读的）；
 - 安装 systemd 服务，但不会代替所有者完成账号授权。
 
 ## 屏幕配置
@@ -220,7 +227,7 @@ v2.0.7：
 
 <https://github.com/respeaker/ReSpeaker_Lite>
 
-## Codex 与飞书授权
+## Codex、GitHub 与飞书授权
 
 以下步骤由 BMO 所有者执行，硬件开发不接触 token、appSecret 或用户授权
 文件。
@@ -231,9 +238,13 @@ curl -fsSL https://chatgpt.com/codex/install.sh \
   | CODEX_NON_INTERACTIVE=1 sh
 codex login --device-auth
 codex login status
+gh auth login
+gh auth status
 ```
 
-继续在 `bmo` 用户下安装和授权飞书：
+`gh` 只用于把确认过的 `bmo/<job-id>` 分支推送到 GitHub 并创建 Pull
+Request；BMO 不会自动合并 PR，也不会直接推送主分支。继续在 `bmo` 用户下
+安装和授权飞书：
 
 ```bash
 npm config set prefix "$HOME/.npm-global"
@@ -245,7 +256,27 @@ lark-cli auth login --domain calendar,task,im
 
 ## 启动与自检
 
-先检查运行配置：
+自检脚本分两段：**硬件验收**（决定退出码，逐项 `PASS`/`FAIL`）和**所有者
+授权**（只打印 `NOTE`，不影响退出码）。因此硬件同学在所有者授权
+Codex/GitHub/飞书之前，就能先把板子相关项跑成“0 failed”。
+
+### 硬件同学（不需要任何账号）
+
+编辑 `/etc/bmo/voice.env` 的 `BMO_AUDIO_DEVICE`（见上一节），启动屏幕服务，
+再跑硬件自检：
+
+```bash
+sudo systemctl enable --now bmo-display bmo-kiosk
+sudo ./deploy/check-orangepi-zero3-hardware.sh
+```
+
+只要最后一行是 “Hardware check: N passed, **0 failed**”，硬件即通过。剩下的
+`NOTE`（`gh` 未登录、Codex/lark-cli 未安装、`bmo-voice` 未启动）是留给所有者
+的待办，不算硬件失败。把脚本完整输出交给软件同学。
+
+### BMO 所有者（完成账号授权后）
+
+先按上面《Codex、GitHub 与飞书授权》授权，再检查运行配置并启动语音服务：
 
 ```bash
 sudo -iu bmo
@@ -255,14 +286,14 @@ set -a
 set +a
 .venv/bin/python -m bmo_voice --check
 exit
-```
 
-返回配置 OK 后：
-
-```bash
-sudo systemctl enable --now bmo-display bmo-kiosk bmo-voice
+sudo systemctl enable --now bmo-voice
 sudo ./deploy/check-orangepi-zero3-hardware.sh
 ```
+
+`--check` 需要运行环境，务必先 `source /etc/bmo/voice.env`，否则会报
+`BMO_VOSK_MODEL must point to ...`。这一轮自检里 `bmo-voice` 应为 active，
+授权相关的 `NOTE` 也会随之消失。
 
 查看日志：
 
@@ -271,6 +302,10 @@ journalctl -u bmo-display -u bmo-kiosk -u bmo-voice -f
 ```
 
 ## 硬件验收
+
+`check-orangepi-zero3-hardware.sh` 的 `PASS`/`FAIL` 覆盖下面前几项硬件条目；
+带 Codex/GitHub/飞书的条目属于所有者授权后验证。务必**真正重启一次**再确认
+第三方服务恢复——安装当次和首次启动同处一次开机，会掩盖开机重建类问题。
 
 - [ ] 自检识别 `OrangePi Zero3`、aarch64 和约 2GB 内存。
 - [ ] `lsusb` 识别 ReSpeaker/XMOS。
@@ -282,7 +317,12 @@ journalctl -u bmo-display -u bmo-kiosk -u bmo-voice -f
 - [ ] 中文、英文和中英混说各完成一次问答。
 - [ ] BMO 播放时插话能够终止播放并重新监听。
 - [ ] Codex 提问、coding 指令和飞书日程查询各验证一次。
-- [ ] 重启后 display、kiosk、voice 三项服务自动恢复。
+- [ ] coding 完成后说“不发布”不会产生 commit、push 或 PR。
+- [ ] 再次发起 coding，完成后说“确认发布”只创建 `bmo/<job-id>` 分支和
+  Pull Request，屏幕显示 PR URL，主分支不发生变化。
+- [ ] 至少 `sudo reboot` 一次，开机后 display、kiosk、voice 三项服务全部
+  自动恢复（`systemctl is-active bmo-display bmo-kiosk bmo-voice` 均为
+  active）。
 - [ ] 连续运行两小时无 USB 掉线、重启或明显过热。
 
 ## 性能调优
@@ -302,6 +342,11 @@ Orange Pi Zero 3 的 H618 与旧 Radxa 的 RK3566 性能不同。先使用仓库
 > 主板是 Orange Pi Zero 3 2GB。只烧 Orange Pi Zero 3 官方 Debian 12
 > Bookworm Server 镜像。主板 USB-C 接稳定 5V/3A；Micro-HDMI 接屏幕
 > Mini-HDMI 驱动板；USB-A Host 接 ReSpeaker Lite；4Ω 5W 喇叭只接
-> ReSpeaker SPK JST-PH 2.0。先跑 `install-orangepi-zero3.sh`，启动服务后
-> 跑 `check-orangepi-zero3-hardware.sh`，把完整输出交给软件同学。原型
-> 独立供电，稳定后再用固定 5V 电源在外壳内统一分电。
+> ReSpeaker SPK JST-PH 2.0。依次跑 `install-orangepi-zero3.sh` 和
+> `install-voice-models.sh`，`systemctl enable --now bmo-display bmo-kiosk`
+> 起屏，按 `--list-audio-devices` 把 `/etc/bmo/voice.env` 的
+> `BMO_AUDIO_DEVICE` 设成能唯一匹配的名字，再跑
+> `check-orangepi-zero3-hardware.sh`——只要“0 failed”硬件就通过，`gh`/Codex/
+> 飞书的 `NOTE` 是所有者的事，别去登录任何账号。把完整输出交给软件同学；
+> 语音服务由所有者授权后再启动。原型独立供电，稳定后再用固定 5V 电源在
+> 外壳内统一分电。

@@ -67,6 +67,9 @@ class DisplayTests(unittest.TestCase):
                             "id": "job-1",
                             "project": "demo",
                             "state": "queued",
+                            "pr_url": (
+                                "https://github.com/example/demo/pull/17"
+                            ),
                         },
                     }
                 ),
@@ -82,45 +85,28 @@ class DisplayTests(unittest.TestCase):
                     self.assertEqual(payload["state"], "coding")
                     self.assertEqual(payload["intent"], "coding")
                     self.assertEqual(payload["job"]["project"], "demo")
+                    self.assertEqual(
+                        payload["job"]["pr_url"],
+                        "https://github.com/example/demo/pull/17",
+                    )
             finally:
                 server.shutdown()
                 server.server_close()
                 thread.join(timeout=2)
 
     def test_face_html_contains_new_state_elements(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            web = root / "web"
-            web.mkdir()
-            html = (
-                '<div id="intent" class="pill"></div>'
-                '<div id="connection" class="status-dot"></div>'
-                '<div id="subtitle"></div>'
-                '<div id="job-card" class="job-card">'
-                '<span id="job-id"></span>'
-                '<span id="job-project"></span>'
-                '<span id="job-state"></span>'
-                "</div>"
-            )
-            (web / "index.html").write_text(html, encoding="utf-8")
-            state = root / "state.json"
-            state.write_text(json.dumps({"state": "idle"}), encoding="utf-8")
-            server = build_server("127.0.0.1", 0, web, state)
-            thread = threading.Thread(target=server.serve_forever, daemon=True)
-            thread.start()
-            try:
-                base = f"http://127.0.0.1:{server.server_port}"
-                with urllib.request.urlopen(f"{base}/") as response:
-                    body = response.read().decode("utf-8")
-                    self.assertIn('id="intent"', body)
-                    self.assertIn('id="connection"', body)
-                    self.assertIn('id="subtitle"', body)
-                    self.assertIn('id="job-card"', body)
-                    self.assertIn('id="job-state"', body)
-            finally:
-                server.shutdown()
-                server.server_close()
-                thread.join(timeout=2)
+        web = Path(__file__).resolve().parents[1] / "web"
+        body = (web / "index.html").read_text(encoding="utf-8")
+        script = (web / "app.js").read_text(encoding="utf-8")
+        self.assertIn('id="intent"', body)
+        self.assertIn('id="connection"', body)
+        self.assertIn('id="subtitle"', body)
+        self.assertIn('id="job-card"', body)
+        self.assertIn('id="job-state"', body)
+        self.assertIn('id="pr-row"', body)
+        self.assertIn('id="pr-url"', body)
+        self.assertIn('"published"', script)
+        self.assertIn("job.pr_url", script)
 
 
 if __name__ == "__main__":
