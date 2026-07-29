@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
@@ -46,8 +46,8 @@ def _boolean(env: Mapping[str, str], name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     vosk_model: Path
-    whisper_model: Path = Path("/opt/bmo/models/ggml-small.bin")
-    hardware_profile: str = "radxa-zero-3w"
+    whisper_model: Path = Path("/opt/bmo/models/ggml-base.bin")
+    hardware_profile: str = "orangepi-zero3-2gb"
     wake_phrases: tuple[str, ...] = (
         "BMO",
         "哔某",
@@ -71,27 +71,53 @@ class Settings:
 
     whisper_bin: str = "whisper-cli"
     codex_bin: str = "codex"
-    codex_workspace: Path = Path("/opt/bmo/voice_assistant/codex_workspace")
+    # Runtime workspace must be writable: the service runs under
+    # ProtectSystem=strict, which mounts /opt read-only, so the Codex cwd lives
+    # in the writable state tree instead.
+    codex_workspace: Path = Path("/var/lib/bmo/codex_workspace")
     codex_project_root: Path = Path("/var/lib/bmo/projects")
     codex_session_file: Path = Path("/var/lib/bmo/codex-session.json")
+    codex_jobs_file: Path = Path("/var/lib/bmo/codex-jobs.json")
+    codex_job_history: int = 50
     codex_timeout_seconds: int = 300
+    confirmation_timeout_seconds: int = 120
     codex_model: str = ""
     codex_profile: str = ""
+    git_bin: str = "git"
+    gh_bin: str = "gh"
+    git_author_name: str = "BMO"
+    git_author_email: str = "bmo@localhost"
+    publish_timeout_seconds: int = 120
 
     lark_cli_bin: str = "lark-cli"
     timezone: str = "Asia/Shanghai"
     agenda_poll_seconds: int = 60
     meeting_reminder_minutes: int = 5
     presence_file: Path = Path("/run/bmo/presence")
+    dnd_file: Path = Path("/run/bmo/dnd")
     presence_absent_seconds: int = 300
     presence_cooldown_seconds: int = 3600
+    quiet_hours_start: str = "22:30"
+    quiet_hours_end: str = "08:00"
     daily_plan_time: str = "09:10"
     autoplan_writes: bool = False
     work_message_query: str = ""
 
     tts_command: str = ""
-    body_url: str = "http://127.0.0.1:8099/v1/bmo"
+    # Empty by default: the Orange Pi web face reads the state file directly.
+    # Set only when a legacy Armada BMO bridge is also running.
+    body_url: str = ""
     state_file: Path = Path("/var/lib/bmo/voice-state.json")
+
+    # Reasoning brain for spoken turns. "codex" (default) runs the Codex CLI for
+    # every turn. "openai" answers ordinary questions and proactive briefings
+    # through an OpenAI-compatible chat endpoint so casual Q&A does not consume
+    # Codex quota; coding jobs and Lark actions still use Codex.
+    brain_provider: str = "codex"
+    openai_base_url: str = ""
+    openai_model: str = ""
+    openai_api_key: str = field(default="", repr=False)
+    openai_timeout_seconds: int = 60
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> "Settings":
@@ -126,13 +152,17 @@ class Settings:
         else:
             device = raw_device
 
+        provider = env.get("BMO_BRAIN", "codex").strip().lower() or "codex"
+        if provider not in {"codex", "openai"}:
+            raise ConfigurationError("BMO_BRAIN must be 'codex' or 'openai'")
+
         return cls(
             vosk_model=Path(raw_vosk).expanduser(),
             whisper_model=Path(raw_whisper).expanduser(),
             hardware_profile=env.get(
-                "BMO_HARDWARE_PROFILE", "radxa-zero-3w"
+                "BMO_HARDWARE_PROFILE", "orangepi-zero3-2gb"
             ).strip()
-            or "radxa-zero-3w",
+            or "orangepi-zero3-2gb",
             wake_phrases=phrases,
             audio_device=device,
             sample_rate=_positive_int(env, "BMO_SAMPLE_RATE", 16_000),
@@ -161,7 +191,7 @@ class Settings:
             codex_workspace=Path(
                 env.get(
                     "BMO_CODEX_WORKSPACE",
-                    "/opt/bmo/voice_assistant/codex_workspace",
+                    "/var/lib/bmo/codex_workspace",
                 )
             ).expanduser(),
             codex_project_root=Path(
@@ -173,11 +203,31 @@ class Settings:
                     "/var/lib/bmo/codex-session.json",
                 )
             ).expanduser(),
+            codex_jobs_file=Path(
+                env.get("BMO_CODEX_JOBS_FILE", "/var/lib/bmo/codex-jobs.json")
+            ).expanduser(),
+            codex_job_history=_positive_int(
+                env, "BMO_CODEX_JOB_HISTORY", 50
+            ),
             codex_timeout_seconds=_positive_int(
                 env, "BMO_CODEX_TIMEOUT_SECONDS", 300
             ),
+            confirmation_timeout_seconds=_positive_int(
+                env, "BMO_CONFIRMATION_TIMEOUT_SECONDS", 120
+            ),
             codex_model=env.get("BMO_CODEX_MODEL", "").strip(),
             codex_profile=env.get("BMO_CODEX_PROFILE", "").strip(),
+            git_bin=env.get("BMO_GIT_BIN", "git").strip() or "git",
+            gh_bin=env.get("BMO_GH_BIN", "gh").strip() or "gh",
+            git_author_name=env.get("BMO_GIT_AUTHOR_NAME", "BMO").strip()
+            or "BMO",
+            git_author_email=env.get(
+                "BMO_GIT_AUTHOR_EMAIL", "bmo@localhost"
+            ).strip()
+            or "bmo@localhost",
+            publish_timeout_seconds=_positive_int(
+                env, "BMO_PUBLISH_TIMEOUT_SECONDS", 120
+            ),
             lark_cli_bin=env.get("BMO_LARK_CLI_BIN", "lark-cli").strip()
             or "lark-cli",
             timezone=env.get("BMO_TIMEZONE", "Asia/Shanghai").strip()
@@ -191,25 +241,57 @@ class Settings:
             presence_file=Path(
                 env.get("BMO_PRESENCE_FILE", "/run/bmo/presence")
             ).expanduser(),
+            dnd_file=Path(
+                env.get("BMO_DND_FILE", "/run/bmo/dnd")
+            ).expanduser(),
             presence_absent_seconds=_positive_int(
                 env, "BMO_PRESENCE_ABSENT_SECONDS", 300
             ),
             presence_cooldown_seconds=_positive_int(
                 env, "BMO_PRESENCE_COOLDOWN_SECONDS", 3600
             ),
+            quiet_hours_start=env.get(
+                "BMO_QUIET_HOURS_START", "22:30"
+            ).strip()
+            or "22:30",
+            quiet_hours_end=env.get(
+                "BMO_QUIET_HOURS_END", "08:00"
+            ).strip()
+            or "08:00",
             daily_plan_time=env.get("BMO_DAILY_PLAN_TIME", "09:10").strip(),
             autoplan_writes=_boolean(env, "BMO_AUTOPLAN_WRITES", False),
             work_message_query=env.get("BMO_WORK_MESSAGE_QUERY", "").strip(),
             tts_command=env.get("BMO_TTS_COMMAND", "").strip(),
-            body_url=env.get(
-                "BMO_BODY_URL", "http://127.0.0.1:8099/v1/bmo"
-            ).strip(),
+            body_url=env.get("BMO_BODY_URL", "").strip(),
             state_file=Path(
                 env.get("BMO_VOICE_STATE_FILE", "/var/lib/bmo/voice-state.json")
             ).expanduser(),
+            brain_provider=provider,
+            openai_base_url=env.get("BMO_OPENAI_BASE_URL", "").strip(),
+            openai_model=env.get("BMO_OPENAI_MODEL", "").strip(),
+            openai_api_key=env.get("BMO_OPENAI_API_KEY", "").strip(),
+            openai_timeout_seconds=_positive_int(
+                env, "BMO_OPENAI_TIMEOUT_SECONDS", 60
+            ),
         )
 
     def validate_runtime(self) -> None:
+        # Config-completeness checks first (no filesystem), so a misconfigured
+        # brain surfaces a clear error before model-file existence checks.
+        if self.brain_provider == "openai":
+            missing = [
+                name
+                for name, value in (
+                    ("BMO_OPENAI_BASE_URL", self.openai_base_url),
+                    ("BMO_OPENAI_MODEL", self.openai_model),
+                    ("BMO_OPENAI_API_KEY", self.openai_api_key),
+                )
+                if not value
+            ]
+            if missing:
+                raise ConfigurationError(
+                    "BMO_BRAIN=openai requires: " + ", ".join(missing)
+                )
         if not self.vosk_model.is_dir():
             raise ConfigurationError(
                 f"Vosk model directory does not exist: {self.vosk_model}"

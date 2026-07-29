@@ -9,6 +9,7 @@ Type=simple
 User=bmo
 Group=bmo
 Environment=HOME=/home/bmo
+EnvironmentFile=-/etc/bmo/display.env
 TTYPath=/dev/tty1
 StandardInput=tty
 StandardOutput=journal

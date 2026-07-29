@@ -8,7 +8,7 @@ import subprocess
 import threading
 
 from .config import Settings
-from .intent import codex_envelope, route_request
+from .intent import RoutedRequest, codex_envelope, route_request
 
 
 class CodexError(RuntimeError):
@@ -49,7 +49,11 @@ class CodexBrain:
         self._lock = threading.Lock()
 
     def ask(self, message: str) -> str:
-        request = route_request(message)
+        return self.ask_request(route_request(message))
+
+    def ask_request(self, request: RoutedRequest) -> str:
+        """Execute the exact locally routed request without discarding metadata."""
+
         sandbox = "read-only" if request.intent.value == "question" else "workspace-write"
         return self._turn(codex_envelope(request), sandbox=sandbox)
 
@@ -82,6 +86,7 @@ class CodexBrain:
             json.dumps({"thread_id": thread_id}, indent=2) + "\n",
             encoding="utf-8",
         )
+        os.chmod(temporary, 0o600)
         os.replace(temporary, path)
 
     def _command(self, thread_id: str | None, sandbox: str) -> list[str]:

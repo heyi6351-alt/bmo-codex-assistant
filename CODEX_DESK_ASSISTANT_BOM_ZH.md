@@ -1,85 +1,75 @@
-# BMO — Radxa ZERO 3W 采购清单
+# BMO — Orange Pi Zero 3 采购与接线清单
 
 BMO（读作“哔某”）当前硬件方案已经固定为：
 
-> **Radxa ZERO 3W 2GB + ReSpeaker Lite USB + HDMI 小屏**
+> **Orange Pi Zero 3 2GB + ReSpeaker Lite USB + 4.3 英寸 800×480 HDMI 屏**
 
-不再采购比赛方的 Orange Pi、Tuya T5AI，也不需要 Raspberry Pi 5。Codex、GPT
-和飞书能力通过网络调用，板子主要负责唤醒词、录音、播放、屏幕和服务编排。
+比赛方的 Orange Pi 3B 和 Tuya T5AI 需要归还；当前 Orange Pi Zero 3 是团队
+自购硬件。Codex、GPT 和飞书能力通过网络调用，板子负责唤醒、录音、播放、
+屏幕和服务编排。
 
-## 必买材料
+## 已确定物料
 
-| 材料 | 数量 | 推荐规格 | 参考预算 |
-|---|---:|---|---:|
-| 主控板 | 1 | **Radxa ZERO 3W 2GB，无 eMMC 版** | ¥120–220 |
-| 系统盘 | 1 | 32GB 或 64GB 高耐久 microSD，A1/A2 | ¥25–60 |
-| 主板电源 | 1 | 稳压 5V/3A USB-C 电源 | ¥25–50 |
-| 音频板 | 1 | **ReSpeaker Lite USB 双麦阵列** | ¥180–260 |
-| 扬声器 | 1 | 4Ω 5W，带腔体，接 ReSpeaker SPK 插座 | ¥15–40 |
-| 显示屏 | 1 | 3.5–5 英寸 HDMI，480×320 或 640×480 | ¥100–220 |
-| 视频线 | 1 | Micro HDMI 转屏幕对应 HDMI 接口 | ¥15–30 |
-| USB 数据线 | 1 | USB-C 数据线，用于主板 Host 口连接 ReSpeaker | ¥10–25 |
-| 屏幕供电 | 1 | 按屏幕要求准备 5V 电源线；原型阶段建议独立供电 | ¥10–30 |
-| 外壳 | 1 | 首版纸板/泡沫板，验证后再 3D 打印 | ¥0–100 |
+| 材料 | 数量 | 规格 | 状态 |
+|---|---:|---|---|
+| 主控板 | 1 | Orange Pi Zero 3，2GB | 已购 |
+| 音频板 | 1 | ReSpeaker Lite USB 双麦阵列 | 已购 |
+| 扬声器 | 1 | 4Ω 5W 腔体，JST-PH 2.0 | 已选 |
+| 显示屏 | 1 | 4.3 英寸横屏 IPS，800×480，非触摸 | 已选 |
+| 屏幕驱动板 | 1 | HDMI 输入、Mini-HDMI、USB-C 5V | 屏幕套餐内 |
 
-预计总价约 **¥500–900**，以实际购买渠道为准。先购买主板、microSD、音频板
-和扬声器；小屏到货前可用普通 HDMI 显示器调试。
+## 仍需确认
 
-## 下单时必须确认
+| 材料 | 推荐规格 | 说明 |
+|---|---|---|
+| microSD | 32GB/64GB，Class 10、A1，可靠品牌 | 烧录 Debian 12 |
+| 主板电源 | 固定 5V/3A USB-C | 原型主板供电 |
+| ReSpeaker 数据线 | USB-A → USB-C，支持数据 | 不能是仅充电线 |
+| 视频线 | Micro-HDMI 公 → Mini-HDMI 公短线 | 优先直连、少一个转接头 |
+| 屏幕供电线 | USB-C 5V | 套餐已含时不重复购买 |
+| 首版外壳 | 纸板/泡沫板/积木结构 | 接口位置确认后再打印 |
 
-- 主板必须是 **Radxa ZERO 3W 2GB**，不要买成 ZERO 3E 或其他版本。
-- microSD 不要使用无品牌卡，持续写日志时容易损坏。
-- USB 线必须支持数据，不能是仅充电线。
-- ReSpeaker 选择 **Lite USB** 版本，以标准 USB 声卡方式接入 Linux。
-- 扬声器阻抗为 **4Ω**、额定功率约 **5W**，购买前与卖家确认插头规格和极性。
-- 屏幕必须能接收 HDMI；不要购买只能走树莓派 DSI 的专用屏。
-- 主板与屏幕建议先独立供电，整机稳定后再评估合并电源。
+套餐若只有“标准 HDMI → Mini-HDMI”线，也可在 Orange Pi 一端增加
+“Micro-HDMI 公 → 标准 HDMI 母”转接头，但直连短线更适合最终外壳。
 
-## 推荐接线
+## 最少接线
 
 ```text
-5V/3A USB-C 电源
-        │
-        ▼
-Radxa ZERO 3W 2GB
-  ├── Micro HDMI ─────────────→ HDMI 小屏
-  └── USB 3.0 Host Type-C ───→ ReSpeaker Lite USB
-                                      │
-                                      └── SPK JST → 4Ω 5W 扬声器
+Orange Pi Zero 3
+  ├── Micro-HDMI → Mini-HDMI 屏幕驱动板
+  └── USB-A → USB-C ReSpeaker Lite → 4Ω 5W 扬声器
 ```
 
-首版不要走 GPIO 或 I²S，所有音频统一通过 USB。这样系统重装或日后换板时，
-只要新板支持 ARM64 Debian、USB 声卡和 HDMI，软件层不需要重新绑定厂商 SDK。
+原型阶段主板和屏幕分别使用稳定 5V。整机验收后，由硬件开发用固定
+5V/4A～5A 电源在外壳内分成主板和屏幕两路，最终外部只保留一根电源线。
+
+## 不需要购买
+
+- ReSpeaker 功放板：Lite 已有扬声器输出。
+- USB 声卡或额外麦克风。
+- XIAO ESP32S3：本项目走 Orange Pi USB Audio。
+- 触摸屏和 USB Hub：当前非触摸屏不占第二个 USB 数据口。
+- 摄像头：第一版到岗检测不做人脸识别。
+- Raspberry Pi 5、Jetson、AI HAT 或独立显卡。
+- 定制 PCB：接口和声学结构尚未真机验收。
 
 ## 可选材料
 
 | 材料 | 什么时候再买 |
 |---|---|
-| USB Hub | USB 接口实测不够，且 Hub 能稳定供电时 |
-| 物理麦克风静音开关 | 需要硬件级隐私控制时 |
-| 毫米波存在传感器 | 键盘/鼠标活动、蓝牙在场等软件判断误报明显时 |
-| USB 转网口 | 工位 Wi-Fi 不稳定时 |
-| 3D 打印外壳 | 屏幕、音频板和扬声器位置验证完成后 |
-| 减震泡棉、声学布 | 做正式外壳并调试回声消除时 |
+| 小型被动散热片 | 本地转写连续运行后温度偏高 |
+| 毫米波存在传感器 | 软件在席判断误报不能接受 |
+| 减震泡棉、声学布 | 正式外壳调试回声与共振 |
+| 5V 分电板/定制电源线 | 合并成一根外部电源线 |
 
-## 当前不要购买
+## 到货验收
 
-- Orange Pi 或 Tuya T5AI：比赛结束后不再依赖这些板卡。
-- Raspberry Pi 5、Jetson、AI HAT 或独立显卡：BMO 不在板上运行大语言模型。
-- 普通单麦克风作为最终版本：缺乏可靠回声消除，BMO 播报时容易听见自己。
-- 摄像头：第一版的到岗识别优先用电脑解锁、输入设备活动或手机蓝牙。
-- 定制 PCB：接口、供电和声学结构尚未在真机完成验证。
+1. Orange Pi 从 microSD 启动官方 Debian 12 Bookworm Server。
+2. `aplay -l` 和 `arecord -l` 能看到 ReSpeaker/XMOS。
+3. HDMI 屏以 800×480 显示完整 BMO 页面。
+4. 扬声器能播放，麦克风能录制中英文。
+5. 播放语音时插话能够停止播放并进入下一轮监听。
+6. 连续运行两小时无 USB 掉线、欠压重启或明显过热。
 
-## 购买后的验收
-
-硬件同学接线后依次确认：
-
-1. Radxa 能从 microSD 启动 64 位 Radxa OS / Debian Bookworm。
-2. `aplay -l` 和 `arecord -l` 能看到 ReSpeaker。
-3. HDMI 能显示 BMO 的 640×480 页面。
-4. 扬声器能播放测试音，麦克风能录下中英文语音。
-5. BMO 播放语音时，用户插话可以终止播放并重新进入监听。
-6. 连续运行两小时没有 USB 掉线、欠压重启或明显过热。
-
-完整接线、烧录、安装和验收命令见
-[`HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md`](./HARDWARE_BRINGUP_RADXA_ZERO3W_ZH.md)。
+完整烧录、接线、安装和验收命令见
+[`HARDWARE_BRINGUP_ORANGEPI_ZERO3_ZH.md`](./HARDWARE_BRINGUP_ORANGEPI_ZERO3_ZH.md)。

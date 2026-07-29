@@ -9,11 +9,14 @@ import shutil
 import sys
 
 from .audio import Microphone, VoskWakeDetector, WhisperCppTranscriber
+from .brain import AssistantBrain
 from .codex import CodexBrain
 from .config import ConfigurationError, Settings
 from .core import ConversationController
 from .events import EventSink
+from .jobs import CodexJobManager
 from .lark import LarkClient
+from .openai_brain import OpenAICompatBrain
 from .proactive import ProactiveScheduler
 from .tts import Speaker
 
@@ -76,6 +79,8 @@ def runtime_check(settings: Settings) -> list[str]:
         (settings.codex_bin, "Codex"),
         (settings.whisper_bin, "whisper.cpp"),
         (settings.lark_cli_bin, "lark-cli"),
+        (settings.git_bin, "git"),
+        (settings.gh_bin, "GitHub CLI (gh)"),
     ):
         if not shutil.which(executable):
             problems.append(f"{label} executable not found: {executable}")
@@ -92,7 +97,7 @@ def runtime_check(settings: Settings) -> list[str]:
     else:
         try:
             sd.query_devices(settings.audio_device, "input")
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, sd.PortAudioError):
             problems.append(
                 f"audio input device was not found: {settings.audio_device!r}; "
                 "run --list-audio-devices"
@@ -132,20 +137,37 @@ def main(argv: list[str] | None = None) -> int:
     body_url = "" if args.no_body else settings.body_url
     events = EventSink(settings.state_file, body_url)
     speaker = Speaker(settings)
-    brain = CodexBrain(settings)
+    codex_brain = CodexBrain(settings)
+    # Codex still owns coding jobs and Lark tool execution. When BMO_BRAIN=openai
+    # the cheaper text model answers questions and drafts proactive briefings so
+    # everyday turns do not spend Codex quota.
+    if settings.brain_provider == "openai":
+        question_brain = OpenAICompatBrain(settings)
+    else:
+        question_brain = codex_brain
+    job_manager = CodexJobManager(settings, events)
+    lark_client = LarkClient(settings)
+    proactive = ProactiveScheduler(
+        settings, question_brain, speaker, lark_client, events
+    )
+    assistant = AssistantBrain(
+        settings,
+        events,
+        codex_brain,
+        job_manager,
+        proactive,
+        question_brain=question_brain,
+    )
     controller = ConversationController(
         VoskWakeDetector(settings),
         WhisperCppTranscriber(settings),
-        brain,
+        assistant,
         speaker,
         events,
         max_turns=settings.max_conversation_turns,
         barge_in_enabled=settings.barge_in_enabled,
         barge_in_energy_threshold=settings.barge_in_energy_threshold,
         barge_in_chunks=settings.barge_in_chunks,
-    )
-    proactive = ProactiveScheduler(
-        settings, brain, speaker, LarkClient(settings)
     )
 
     try:
@@ -155,11 +177,37 @@ def main(argv: list[str] | None = None) -> int:
                     proactive.tick()
                 except Exception:
                     LOG.exception("proactive scheduler tick failed")
+                for message in assistant.poll_notifications():
+                    if "PR 已创建" in message:
+                        state = "published"
+                    elif "发布失败" in message:
+                        state = "publish_failed"
+                    elif "确认发布" in message:
+                        state = "ready"
+                    elif "已完成" in message:
+                        state = "done"
+                    elif "已取消" in message:
+                        state = "cancelled"
+                    else:
+                        state = "failed"
+                    try:
+                        events.emit(state, subtitle=message[:300])
+                        speaker.speak(message)
+                    except Exception:
+                        LOG.exception("job notification speech failed")
+                    finally:
+                        events.emit("idle")
                 microphone.clear()
                 if args.once:
                     controller.run_session(microphone)
                     return 0
-                controller.poll_and_run(microphone, settings.wake_poll_seconds)
+                try:
+                    controller.poll_and_run(microphone, settings.wake_poll_seconds)
+                except Exception:
+                    # A single failed conversation turn must never take the
+                    # always-on service down into a systemd restart storm.
+                    LOG.exception("conversation turn failed")
+                    events.emit("idle")
     except KeyboardInterrupt:
         events.emit("idle")
         return 0

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -176,10 +177,22 @@ class IntentTests(unittest.TestCase):
     def test_default_is_question(self) -> None:
         self.assertEqual(route_request("日历是怎么工作的").intent, Intent.QUESTION)
         self.assertEqual(route_request("Explain CSS subgrid").intent, Intent.QUESTION)
+        self.assertEqual(
+            route_request("如何删除 Git 项目的测试分支").intent,
+            Intent.QUESTION,
+        )
+        self.assertEqual(
+            route_request("How do I delete a repository branch?").intent,
+            Intent.QUESTION,
+        )
 
     def test_explicit_execution_routes(self) -> None:
         self.assertEqual(
             route_request("修改 demo 项目的登录页").intent, Intent.CODING
+        )
+        self.assertEqual(
+            route_request("删除 demo 项目的旧测试").intent,
+            Intent.CODING,
         )
         self.assertEqual(route_request("查看我今天的日程").intent, Intent.ACTION)
         self.assertEqual(route_request("我今天有什么日程").intent, Intent.ACTION)
@@ -240,6 +253,41 @@ class CodexTests(unittest.TestCase):
             self.assertIn("<voice_intent>question</voice_intent>", run.call_args.kwargs["input"])
             saved = json.loads((root / "session.json").read_text())
             self.assertEqual(saved["thread_id"], "thread-1")
+            self.assertEqual(
+                (root / "session.json").stat().st_mode & 0o777,
+                0o600,
+            )
+
+    @patch("bmo_voice.codex.subprocess.run")
+    def test_exact_confirmation_metadata_reaches_codex(self, run) -> None:
+        run.return_value.returncode = 0
+        run.return_value.stdout = json.dumps(
+            {
+                "type": "item.completed",
+                "item": {"type": "agent_message", "text": "已发送"},
+            }
+        )
+        run.return_value.stderr = ""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            settings = Settings(
+                vosk_model=root,
+                whisper_model=root / "model.bin",
+                codex_workspace=root / "brain",
+                codex_project_root=root / "projects",
+                codex_session_file=root / "session.json",
+            )
+            request = replace(
+                route_request("发送邮件给张三"),
+                confirmed=True,
+            )
+            self.assertEqual(
+                CodexBrain(settings).ask_request(request),
+                "已发送",
+            )
+            prompt = run.call_args.kwargs["input"]
+            self.assertIn("<confirmed>true</confirmed>", prompt)
+            self.assertIn(f"<request_id>{request.request_id}</request_id>", prompt)
 
 
 class LarkTests(unittest.TestCase):
@@ -276,6 +324,26 @@ class LarkTests(unittest.TestCase):
         self.assertIn("--as", command)
         self.assertEqual(command[command.index("--as") + 1], "user")
         self.assertFalse(run.call_args.kwargs.get("shell", False))
+
+
+class EventTests(unittest.TestCase):
+    def test_transient_fields_clear_but_active_job_persists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "state.json"
+            sink = EventSink(path)
+            sink.emit(
+                "coding",
+                intent="coding",
+                subtitle="正在修改",
+                job={"id": "job-1", "state": "coding"},
+            )
+            sink.emit("listening", turn=2)
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["state"], "listening")
+            self.assertNotIn("intent", payload)
+            self.assertNotIn("subtitle", payload)
+            self.assertEqual(payload["job"]["id"], "job-1")
+            self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
 
 class ProactiveTests(unittest.TestCase):
@@ -360,6 +428,15 @@ class ConfigurationTests(unittest.TestCase):
     def test_models_are_required(self) -> None:
         with self.assertRaises(ConfigurationError):
             Settings.from_env({})
+
+    def test_orangepi_zero3_is_the_default_hardware_profile(self) -> None:
+        settings = Settings.from_env(
+            {
+                "BMO_VOSK_MODEL": "/opt/bmo/models/vosk",
+                "BMO_WHISPER_MODEL": "/opt/bmo/models/ggml-base.bin",
+            }
+        )
+        self.assertEqual(settings.hardware_profile, "orangepi-zero3-2gb")
 
 
 if __name__ == "__main__":

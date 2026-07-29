@@ -46,11 +46,19 @@ class Speaker:
             self._command(text),
             capture_output=True,
             text=True,
-            timeout=max(30, len(text) // 3),
+            timeout=self._timeout(text),
             check=False,
         )
         if result.returncode != 0:
             raise RuntimeError(result.stderr.strip() or "TTS playback failed")
+
+    @staticmethod
+    def _timeout(text: str) -> float:
+        # Generous upper bound on synthesis+playback time. This is only a
+        # safety kill, not a pace: a long Chinese briefing (a few hundred
+        # characters) must never be truncated mid-sentence, so budget well
+        # above any real speaking rate and keep a floor for short replies.
+        return max(30.0, len(text) * 0.7 + 10.0)
 
     def speak_interruptible(
         self,
